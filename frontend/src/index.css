@@ -4,6 +4,10 @@
   padding: 0;
 }
 
+html {
+  font-size: 18px;
+}
+
 :root {
   --primary: #6366f1;
   --primary-hover: #4f46e5;
@@ -41,7 +45,7 @@ body {
   top: 0;
   z-index: 100;
   padding: 0 clamp(16px, 4vw, 56px);
-  height: 64px;
+  height: 72px;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -246,9 +250,9 @@ body {
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 24px;
   position: sticky;
-  top: 88px;
+  top: 96px;
 }
 
 .filters-title {
@@ -277,10 +281,10 @@ body {
 
 .filter-input {
   width: 100%;
-  padding: 9px 12px;
+  padding: 11px 14px;
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: 0.875rem;
+  font-size: 0.9rem;
   color: var(--text);
   background: var(--bg);
   outline: none;
@@ -369,6 +373,8 @@ body {
   overflow: hidden;
   cursor: pointer;
   transition: box-shadow var(--transition), transform var(--transition), border-color var(--transition);
+  display: flex;
+  flex-direction: column;
 }
 
 .event-card:hover {
@@ -378,18 +384,21 @@ body {
 }
 
 .event-card-banner {
-  height: 8px;
+  height: 10px;
 }
 
 .event-card-body {
-  padding: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
 
 .event-card-category {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.75rem;
+  font-size: 0.82rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -398,7 +407,7 @@ body {
 }
 
 .event-card-name {
-  font-size: 1.05rem;
+  font-size: 1.1rem;
   font-weight: 700;
   color: var(--text);
   margin-bottom: 10px;
@@ -420,7 +429,7 @@ body {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   color: var(--text-muted);
 }
 
@@ -435,6 +444,7 @@ body {
   justify-content: space-between;
   padding-top: 12px;
   border-top: 1px solid var(--border);
+  margin-top: auto;
 }
 
 .event-price {
@@ -448,7 +458,7 @@ body {
 }
 
 .event-groups-badge {
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   color: var(--text-muted);
   display: flex;
   align-items: center;
@@ -481,26 +491,26 @@ body {
 }
 
 .detail-hero-banner {
-  height: 12px;
+  height: 16px;
 }
 
 .detail-hero-body {
-  padding: 28px 32px;
+  padding: 32px 40px;
 }
 
 .detail-category-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
+  padding: 5px 14px;
   border-radius: 999px;
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   font-weight: 600;
   margin-bottom: 12px;
 }
 
 .detail-name {
-  font-size: 1.75rem;
+  font-size: 2rem;
   font-weight: 800;
   line-height: 1.2;
   margin-bottom: 16px;
@@ -529,7 +539,7 @@ body {
 }
 
 .detail-meta-label {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -538,13 +548,13 @@ body {
 }
 
 .detail-meta-value {
-  font-size: 0.9rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text);
 }
 
 .detail-description {
-  font-size: 0.95rem;
+  font-size: 1rem;
   color: var(--text-muted);
   line-height: 1.7;
   margin-bottom: 20px;
@@ -601,18 +611,18 @@ body {
 }
 
 .group-card-name {
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 700;
 }
 
 .group-card-meta {
-  font-size: 0.8rem;
+  font-size: 0.875rem;
   color: var(--text-muted);
   margin-bottom: 10px;
 }
 
 .group-card-description {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--text-muted);
   margin-bottom: 12px;
   line-height: 1.5;
@@ -626,11 +636,11 @@ body {
 }
 
 .member-chip {
-  padding: 3px 10px;
+  padding: 4px 12px;
   background: var(--primary-light);
   color: var(--primary);
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: 0.82rem;
   font-weight: 500;
 }
 
@@ -732,11 +742,11 @@ textarea.form-input {
 }
 
 .tag {
-  padding: 3px 10px;
+  padding: 4px 12px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: 0.82rem;
   color: var(--text-muted);
 }
 
@@ -750,9 +760,9 @@ textarea.form-input {
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
 }
 
