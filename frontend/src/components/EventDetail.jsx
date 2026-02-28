@@ -8,7 +8,7 @@ import GroupMessageBoard from './GroupMessageBoard'
 function formatDate(dateStr) {
   if (!dateStr) return ''
   const d = new Date(dateStr + 'T12:00:00')
-  return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Chicago' })
 }
 
 function formatTime(timeStr) {
@@ -16,7 +16,7 @@ function formatTime(timeStr) {
   const [h, m] = timeStr.split(':').map(Number)
   const ampm = h >= 12 ? 'PM' : 'AM'
   const hour = h % 12 || 12
-  return `${hour}:${String(m).padStart(2, '0')} ${ampm}`
+  return `${hour}:${String(m).padStart(2, '0')} ${ampm} CT`
 }
 
 export default function EventDetail({ event, onBack }) {
@@ -115,7 +115,11 @@ export default function EventDetail({ event, onBack }) {
       </button>
 
       <div className="detail-hero">
-        <div className="detail-hero-banner" style={{ background: cat.color }} />
+        {event.imageUrl ? (
+          <img className="detail-hero-image" src={event.imageUrl} alt={event.name} />
+        ) : (
+          <div className="detail-hero-banner" style={{ background: cat.color }} />
+        )}
         <div className="detail-hero-body">
           <div
             className="detail-category-badge"
