@@ -45,11 +45,11 @@ export function generateIcs(event) {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Gather Events//Event Finder//EN',
+    'PRODID:-//Curia//Event Finder//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',
-    foldLine(`UID:event-${event.id}-${stamp}@gather.events`),
+    foldLine(`UID:event-${event.id}-${stamp}@curia.events`),
     `DTSTAMP:${stamp}`,
     `DTSTART:${dtStart}`,
     `DTEND:${dtEnd}`,
