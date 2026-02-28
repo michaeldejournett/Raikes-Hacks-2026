@@ -28,7 +28,7 @@ export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, on
       </div>
 
       <div className="navbar-actions">
-        <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Find your next adventure</span>
+        <span style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-muted)' }}>Find your next adventure</span>
       </div>
     </nav>
   )

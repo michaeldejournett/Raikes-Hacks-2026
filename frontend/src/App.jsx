@@ -6,10 +6,9 @@ import EventCard from './components/EventCard'
 import EventDetail from './components/EventDetail'
 
 const DEFAULT_FILTERS = {
-  category: '',
+  category: [],
   dateFrom: '',
   dateTo: '',
-  priceSort: '',
   location: '',
 }
 
@@ -22,6 +21,8 @@ export default function App() {
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [events, setEvents]               = useState([])
   const [loading, setLoading]             = useState(true)
+  const [page, setPage]                   = useState(1)
+  const [pageSize, setPageSize]           = useState(20)
   const debounceRef = useRef(null)
 
   const handleSearchChange = (value) => {
@@ -50,18 +51,21 @@ export default function App() {
 
   const filteredEvents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    const results = events.filter((ev) => {
+    return events.filter((ev) => {
       if (q && !ev.name.toLowerCase().includes(q) && !(ev.description || '').toLowerCase().includes(q)) return false
-      if (filters.category && ev.category !== filters.category) return false
+      if (filters.category.length && !filters.category.includes(ev.category)) return false
       if (filters.location && ev.location !== filters.location) return false
       if (filters.dateFrom && ev.date < filters.dateFrom) return false
       if (filters.dateTo && ev.date > filters.dateTo) return false
       return true
     })
-    if (filters.priceSort === 'asc') results.sort((a, b) => a.price - b.price)
-    if (filters.priceSort === 'desc') results.sort((a, b) => b.price - a.price)
-    return results
   }, [events, searchQuery, filters])
+
+  // Reset to page 1 whenever results or page size change
+  useEffect(() => { setPage(1) }, [searchQuery, filters, pageSize])
+
+  const totalPages  = Math.max(1, Math.ceil(filteredEvents.length / pageSize))
+  const pagedEvents = filteredEvents.slice((page - 1) * pageSize, page * pageSize)
 
   const handleBack = () => {
     setSelectedEvent(null)
@@ -86,6 +90,12 @@ export default function App() {
               filters={filters}
               onChange={setFilters}
               onReset={() => setFilters(DEFAULT_FILTERS)}
+              pageSize={pageSize}
+              onPageSizeChange={setPageSize}
+              page={page}
+              totalPages={totalPages}
+              totalCount={filteredEvents.length}
+              onPageChange={setPage}
             />
 
             <section>
@@ -103,14 +113,14 @@ export default function App() {
               </div>
 
               <div className="event-grid">
-                {!loading && filteredEvents.length === 0 ? (
+                {!loading && pagedEvents.length === 0 ? (
                   <div className="no-results">
                     <div className="no-results-icon">🔍</div>
                     <p style={{ fontWeight: 600, marginBottom: 4 }}>No events match your search</p>
                     <p style={{ fontSize: '0.85rem' }}>Try adjusting your filters or search terms</p>
                   </div>
                 ) : (
-                  filteredEvents.map((ev) => (
+                  pagedEvents.map((ev) => (
                     <EventCard
                       key={ev.id}
                       event={ev}
@@ -120,6 +130,7 @@ export default function App() {
                   ))
                 )}
               </div>
+
             </section>
           </div>
         )}
