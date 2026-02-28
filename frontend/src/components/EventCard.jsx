@@ -28,7 +28,7 @@ export default function EventCard({ event, groupCount, onClick }) {
           <span style={{ color: cat.color }}>{cat.label}</span>
         </div>
 
-        <h2 className="event-card-name">{event.name}</h2>
+        <h2 className="event-card-name" title={event.name}>{event.name}</h2>
 
         <div className="event-card-meta">
           <div className="event-card-meta-item">

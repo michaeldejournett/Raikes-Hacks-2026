@@ -1,12 +1,26 @@
 # Gather Events
 
-An event discovery app with a **Looking For Group** feature — find events near you and organize groups to attend together.
+An event discovery app built for **RaikesHacks 2026**. Find events near you, filter by category/date/price/location, create groups to attend together, and download calendar files.
+
+> Project by team **"Is There Input Length Validation?"** — Michael, Will, and Rishi.
 
 ## Tech Stack
 
 - **Frontend:** React + Vite
 - **Backend:** Node.js + Express
 - **Database:** PostgreSQL
+
+## Quick Start
+
+From the repo root in PowerShell or Command Prompt:
+
+```
+.\start.bat
+```
+
+This installs dependencies and starts the dev server. Then open **http://localhost:5173** in your browser.
+
+> **Note:** If you've already run it once, `npm install` will be fast since packages are cached.
 
 ## Local Development
 
