@@ -46,5 +46,19 @@ services:
       ollama-pull:
         condition: service_completed_successfully
 
+  # ── Express + SQLite backend (events & groups API) ───────────────────────
+  backend:
+    build: ./backend
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./scraped:/scraped      # shares scraped events.json with the api service
+      - backend_db:/data        # persists SQLite DB across restarts
+    environment:
+      PORT: "3001"
+      NODE_ENV: production
+      DB_PATH: /data/gather.db
+
 volumes:
   ollama_data:
+  backend_db:
