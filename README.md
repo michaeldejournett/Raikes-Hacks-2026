@@ -90,6 +90,33 @@ Returns service status and scrape state.
 }
 ```
 
+#### `GET /events`
+Returns all cached events in the standard JSON format.
+```bash
+curl http://localhost:8080/events
+```
+
+```json
+{
+  "scraped_at": "2026-02-28T20:00:00+00:00",
+  "count": 842,
+  "events": [
+    {
+      "title": "Flatland Climbing Competition",
+      "url": "https://events.unl.edu/2026/02/28/195255/",
+      "start": "2026-02-28T09:00:00-06:00",
+      "end": "2026-02-28T16:00:00-06:00",
+      "location": "Campus Recreation Center",
+      "description": "Connect with climbers from around the Mid-West...",
+      "group": "Campus Recreation",
+      "image_url": "https://...",
+      "audience": ["Recreation", "Sports"],
+      "source": "https://events.unl.edu/upcoming/?format=rss&limit=-1"
+    }
+  ]
+}
+```
+
 #### `GET /search`
 Search events with a natural-language query.
 
