@@ -34,12 +34,24 @@ function initDb() {
   `)
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      google_id TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT,
+      picture TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `)
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS groups (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT DEFAULT '',
       creator TEXT NOT NULL,
+      creator_id INTEGER REFERENCES users(id),
       created_at TEXT DEFAULT (datetime('now'))
     )
   `)
@@ -49,6 +61,7 @@ function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
       member_name TEXT NOT NULL,
+      user_id INTEGER REFERENCES users(id),
       joined_at TEXT DEFAULT (datetime('now')),
       UNIQUE(group_id, member_name)
     )
@@ -58,6 +71,8 @@ function initDb() {
   for (const col of ['url TEXT', 'image_url TEXT']) {
     try { db.exec(`ALTER TABLE events ADD COLUMN ${col}`) } catch { /* already exists */ }
   }
+  try { db.exec('ALTER TABLE groups ADD COLUMN creator_id INTEGER REFERENCES users(id)') } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE group_members ADD COLUMN user_id INTEGER REFERENCES users(id)') } catch { /* already exists */ }
 
   const count = db.prepare('SELECT COUNT(*) AS count FROM events').get().count
   if (count === 0) {

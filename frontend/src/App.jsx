@@ -23,6 +23,7 @@ export default function App() {
   const [searching, setSearching]         = useState(false)
   const [page, setPage]                   = useState(1)
   const [pageSize, setPageSize]           = useState(20)
+  const [user, setUser]                   = useState(null)
 
   const handleSearchChange = (value) => {
     setSearchInput(value)
@@ -64,7 +65,10 @@ export default function App() {
     }
   }
 
-  useEffect(() => { loadEvents() }, [])
+  useEffect(() => {
+    loadEvents()
+    api.getMe().then(setUser).catch(() => setUser(null))
+  }, [])
 
   const filteredEvents = useMemo(() => {
     let source = searchResults ?? events
@@ -110,11 +114,13 @@ export default function App() {
         onSearchChange={handleSearchChange}
         onSearchSubmit={handleSearchSubmit}
         onLogoClick={() => { setSelectedEvent(null); setSearchInput(''); setSearchResults(null); setSearchMeta(null); loadEvents() }}
+        user={user}
+        onUserChange={setUser}
       />
 
       <main className="page">
         {selectedEvent ? (
-          <EventDetail event={selectedEvent} onBack={handleBack} />
+          <EventDetail event={selectedEvent} onBack={handleBack} user={user} />
         ) : (
           <div className="page-layout">
             <SearchFilters
