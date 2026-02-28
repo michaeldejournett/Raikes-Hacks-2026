@@ -15,3 +15,5 @@ From the repo root in PowerShell or Command Prompt:
 This installs dependencies and starts the dev server. Then open **http://localhost:5173** in your browser.
 
 > **Note:** If you've already run it once, `npm install` will be fast since packages are cached.
+
+This is the RaikesHacks 2026 project for the team "Is There Input Length Validation?" consisting of Michael, Will, and Rishi.
