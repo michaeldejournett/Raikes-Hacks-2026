@@ -23,7 +23,7 @@ railway add --service api     2>/dev/null || true
 # ── Deploy: backend + frontend (root railway.json) ────────────────────────────
 
 log "Deploying backend + frontend..."
-railway up --service backend --detach
+railway up --service backend --detach --no-gitignore
 
 # ── Deploy: FastAPI scraper (api/ subdirectory) ───────────────────────────────
 
