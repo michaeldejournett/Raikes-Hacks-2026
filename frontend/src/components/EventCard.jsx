@@ -1,0 +1,63 @@
+import { getCategoryMeta } from '../data/events'
+
+function formatDate(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00')
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
+function formatTime(timeStr) {
+  const [h, m] = timeStr.split(':').map(Number)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const hour = h % 12 || 12
+  return `${hour}:${String(m).padStart(2, '0')} ${ampm}`
+}
+
+export default function EventCard({ event, groupCount, onClick }) {
+  const cat = getCategoryMeta(event.category)
+
+  return (
+    <article className="event-card" onClick={onClick} role="button" tabIndex={0}
+      onKeyDown={(e) => e.key === 'Enter' && onClick()}
+    >
+      {/* Category color strip */}
+      <div className="event-card-banner" style={{ background: cat.color }} />
+
+      <div className="event-card-body">
+        <div className="event-card-category">
+          <span>{cat.emoji}</span>
+          <span style={{ color: cat.color }}>{cat.label}</span>
+        </div>
+
+        <h2 className="event-card-name" title={event.name}>{event.name}</h2>
+
+        <div className="event-card-meta">
+          <div className="event-card-meta-item">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            {formatDate(event.date)} · {formatTime(event.time)}
+          </div>
+
+          <div className="event-card-meta-item">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+            </svg>
+            {event.venue}
+          </div>
+        </div>
+
+        <div className="event-card-footer">
+          <span className={`event-price ${event.price === 0 ? 'free' : ''}`}>
+            {event.price === 0 ? 'Free' : `$${event.price}`}
+          </span>
+          <span className="event-groups-badge">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+            {groupCount} {groupCount === 1 ? 'group' : 'groups'}
+          </span>
+        </div>
+      </div>
+    </article>
+  )
+}
