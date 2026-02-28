@@ -15,6 +15,8 @@ async function request(path, options = {}) {
 export const api = {
   getEvents: () => request('/api/events'),
   getEvent: (id) => request(`/api/events/${id}`),
+  searchEvents: (q, top = 50) =>
+    request(`/api/events/search?${new URLSearchParams({ q, top })}`),
   getGroups: (eventId) => request(`/api/groups?eventId=${eventId}`),
   createGroup: (data) =>
     request('/api/groups', { method: 'POST', body: JSON.stringify(data) }),

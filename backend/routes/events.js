@@ -3,6 +3,8 @@ import db from '../db.js'
 
 const router = Router()
 
+const FASTAPI_URL = process.env.FASTAPI_URL || 'http://localhost:8080'
+
 const listEvents = db.prepare(`
   SELECT e.*,
     (SELECT COUNT(*) FROM groups g WHERE g.event_id = e.id) AS groupCount
@@ -17,6 +19,8 @@ const getEvent = db.prepare(`
   WHERE e.id = ?
 `)
 
+const FIELD_WEIGHTS = { name: 4, venue: 2, category: 2, description: 1, tags: 1 }
+
 router.get('/', (_req, res) => {
   try {
     const rows = listEvents.all()
@@ -24,6 +28,62 @@ router.get('/', (_req, res) => {
   } catch (err) {
     console.error('GET /api/events', err)
     res.status(500).json({ error: 'Failed to fetch events' })
+  }
+})
+
+router.get('/search', async (req, res) => {
+  try {
+    const { q, top = 50 } = req.query
+    if (!q || !q.trim()) return res.json({ terms: [], llmUsed: false, results: [] })
+
+    const rawTerms = q.toLowerCase().match(/[a-z0-9]+/g)?.filter(w => w.length > 1) || []
+    let terms = rawTerms
+    let llmUsed = false
+
+    try {
+      const resp = await fetch(
+        `${FASTAPI_URL}/search?${new URLSearchParams({ q, top: '1', no_llm: 'false' })}`,
+        { signal: AbortSignal.timeout(1500) }
+      )
+      if (resp.ok) {
+        const data = await resp.json()
+        if (data.terms?.length) {
+          terms = data.terms
+          llmUsed = true
+        }
+      }
+    } catch { /* FastAPI unavailable — use raw terms */ }
+
+    const allRows = listEvents.all()
+    const scored = []
+
+    for (const row of allRows) {
+      const ev = formatEvent(row)
+      let score = 0
+      const fields = {
+        name: (ev.name || '').toLowerCase(),
+        description: (ev.description || '').toLowerCase(),
+        venue: (ev.venue || '').toLowerCase(),
+        category: (ev.category || '').toLowerCase(),
+        tags: (ev.tags || []).join(' ').toLowerCase(),
+      }
+
+      for (const term of terms) {
+        for (const [field, text] of Object.entries(fields)) {
+          if (text.includes(term)) score += FIELD_WEIGHTS[field] || 1
+        }
+      }
+
+      if (score > 0) scored.push({ ...ev, score })
+    }
+
+    scored.sort((a, b) => b.score - a.score)
+    const results = scored.slice(0, Number(top))
+
+    res.json({ terms, llmUsed, count: results.length, results })
+  } catch (err) {
+    console.error('GET /api/events/search', err)
+    res.status(500).json({ error: 'Search failed' })
   }
 })
 

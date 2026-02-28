@@ -1,0 +1,48 @@
+flowchart TB
+  subgraph user [Users]
+    Browser["Browser"]
+  end
+
+  subgraph frontend [Frontend - React + Vite]
+    App["App.jsx"]
+    EventList["Event List + Filters"]
+    EventDetail["Event Detail + Groups"]
+    API["api.js (fetch wrapper)"]
+  end
+
+  subgraph backend [Backend - Express + SQLite]
+    Express["Express Server (port 3001)"]
+    EventsRoute["/api/events"]
+    GroupsRoute["/api/groups"]
+    SQLite["SQLite (gather.db)"]
+  end
+
+  subgraph scraper [Scraper - Docker]
+    FastAPI["FastAPI (port 8080)"]
+    Scraper["scraper.py"]
+    Ollama["Ollama LLM"]
+    ScrapedJSON["scraped/events.json"]
+  end
+
+  subgraph external [External Sources]
+    UNL["events.unl.edu"]
+    Engage["Campus Labs Engage"]
+  end
+
+  Browser --> App
+  App --> EventList
+  App --> EventDetail
+  EventList --> API
+  EventDetail --> API
+  API -->|"HTTP /api/*"| Express
+  Express --> EventsRoute
+  Express --> GroupsRoute
+  EventsRoute --> SQLite
+  GroupsRoute --> SQLite
+
+  Scraper -->|"RSS + HTML"| UNL
+  Scraper -->|"JSON API"| Engage
+  Scraper --> ScrapedJSON
+  FastAPI --> Scraper
+  FastAPI -->|"keyword expansion"| Ollama
+  ScrapedJSON -->|"seeds on startup"| SQLite

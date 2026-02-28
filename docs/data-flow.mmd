@@ -1,0 +1,29 @@
+sequenceDiagram
+  participant S as Scraper (Docker)
+  participant F as scraped/events.json
+  participant B as Express Backend
+  participant DB as SQLite
+  participant FE as React Frontend
+
+  Note over S,F: One-time or periodic scrape
+  S->>F: Write 1500+ UNL events
+
+  Note over B,DB: On server startup
+  B->>F: Check if file exists
+  F-->>B: Return events JSON
+  B->>DB: Seed events table (with field mapping)
+
+  Note over FE,DB: Runtime
+  FE->>B: GET /api/events
+  B->>DB: SELECT * FROM events
+  DB-->>B: Event rows
+  B-->>FE: JSON response
+
+  FE->>B: POST /api/groups
+  B->>DB: INSERT INTO groups
+  DB-->>B: New group
+  B-->>FE: Created group JSON
+
+  FE->>B: POST /api/groups/:id/join
+  B->>DB: INSERT INTO group_members
+  B-->>FE: Updated group JSON

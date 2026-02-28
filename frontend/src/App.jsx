@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { api } from './api'
 import Navbar from './components/Navbar'
 import SearchFilters from './components/SearchFilters'
@@ -12,29 +12,46 @@ const DEFAULT_FILTERS = {
   location: '',
 }
 
-const DEBOUNCE_MS = 400
-
 export default function App() {
   const [searchInput, setSearchInput]     = useState('')
-  const [searchQuery, setSearchQuery]     = useState('')
   const [filters, setFilters]             = useState(DEFAULT_FILTERS)
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [events, setEvents]               = useState([])
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchMeta, setSearchMeta]       = useState(null)
   const [loading, setLoading]             = useState(true)
+  const [searching, setSearching]         = useState(false)
   const [page, setPage]                   = useState(1)
   const [pageSize, setPageSize]           = useState(20)
-  const debounceRef = useRef(null)
 
   const handleSearchChange = (value) => {
     setSearchInput(value)
-    clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => setSearchQuery(value), DEBOUNCE_MS)
+    if (!value.trim()) {
+      setSearchResults(null)
+      setSearchMeta(null)
+    }
   }
 
-  const handleSearchSubmit = () => {
-    clearTimeout(debounceRef.current)
-    setSearchQuery(searchInput)
-  }
+  const handleSearchSubmit = useCallback(async () => {
+    const q = searchInput.trim()
+    if (!q) {
+      setSearchResults(null)
+      setSearchMeta(null)
+      return
+    }
+    setSearching(true)
+    try {
+      const data = await api.searchEvents(q)
+      setSearchResults(data.results)
+      setSearchMeta({ terms: data.terms, llmUsed: data.llmUsed, count: data.count })
+    } catch (err) {
+      console.error('Search failed:', err)
+      setSearchResults(null)
+      setSearchMeta(null)
+    } finally {
+      setSearching(false)
+    }
+  }, [searchInput])
 
   const loadEvents = async () => {
     try {
@@ -50,19 +67,31 @@ export default function App() {
   useEffect(() => { loadEvents() }, [])
 
   const filteredEvents = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    return events.filter((ev) => {
-      if (q && !ev.name.toLowerCase().includes(q) && !(ev.description || '').toLowerCase().includes(q)) return false
+    let source = searchResults ?? events
+
+    const q = searchInput.trim().toLowerCase()
+    if (!searchResults && q) {
+      const terms = q.match(/[a-z0-9]+/g)?.filter(w => w.length > 1) || []
+      if (terms.length) {
+        source = events.filter(ev => {
+          const haystack = [ev.name, ev.description, ev.venue, ev.category, ...(ev.tags || [])]
+            .map(s => (s || '').toLowerCase())
+            .join(' ')
+          return terms.some(t => haystack.includes(t))
+        })
+      }
+    }
+
+    return source.filter((ev) => {
       if (filters.category.length && !filters.category.includes(ev.category)) return false
-      if (filters.location && ev.location !== filters.location) return false
       if (filters.dateFrom && ev.date < filters.dateFrom) return false
       if (filters.dateTo && ev.date > filters.dateTo) return false
       return true
     })
-  }, [events, searchQuery, filters])
+  }, [events, searchResults, searchInput, filters])
 
   // Reset to page 1 whenever results or page size change
-  useEffect(() => { setPage(1) }, [searchQuery, filters, pageSize])
+  useEffect(() => { setPage(1) }, [searchInput, filters, pageSize, searchResults])
 
   const totalPages  = Math.max(1, Math.ceil(filteredEvents.length / pageSize))
   const pagedEvents = filteredEvents.slice((page - 1) * pageSize, page * pageSize)
@@ -72,13 +101,15 @@ export default function App() {
     loadEvents()
   }
 
+  const isLoading = loading || searching
+
   return (
     <>
       <Navbar
         searchQuery={searchInput}
         onSearchChange={handleSearchChange}
         onSearchSubmit={handleSearchSubmit}
-        onLogoClick={() => { setSelectedEvent(null); loadEvents() }}
+        onLogoClick={() => { setSelectedEvent(null); setSearchInput(''); setSearchResults(null); setSearchMeta(null); loadEvents() }}
       />
 
       <main className="page">
@@ -101,19 +132,24 @@ export default function App() {
             <section>
               <div className="events-header">
                 <p className="events-count">
-                  {loading ? (
-                    'Loading events…'
+                  {isLoading ? (
+                    searching ? 'Searching…' : 'Loading events…'
                   ) : (
                     <>
                       <strong>{filteredEvents.length}</strong>{' '}
                       {filteredEvents.length === 1 ? 'event' : 'events'} found
+                      {searchMeta && (
+                        <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6, fontSize: '0.82rem' }}>
+                          {searchMeta.llmUsed ? '(AI-powered)' : '(keyword match)'}
+                        </span>
+                      )}
                     </>
                   )}
                 </p>
               </div>
 
               <div className="event-grid">
-                {!loading && pagedEvents.length === 0 ? (
+                {!isLoading && pagedEvents.length === 0 ? (
                   <div className="no-results">
                     <div className="no-results-icon">🔍</div>
                     <p style={{ fontWeight: 600, marginBottom: 4 }}>No events match your search</p>
