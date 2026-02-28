@@ -7,9 +7,9 @@ import EventDetail from './components/EventDetail'
 
 const DEFAULT_FILTERS = {
   category: '',
-  date: '',
-  minPrice: '',
-  maxPrice: '',
+  dateFrom: '',
+  dateTo: '',
+  priceSort: '',
   location: '',
 }
 
@@ -24,15 +24,17 @@ export default function App() {
   // ── Filtering ──────────────────────────────────────────────
   const filteredEvents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    return EVENTS.filter((ev) => {
+    const results = EVENTS.filter((ev) => {
       if (q && !ev.name.toLowerCase().includes(q) && !ev.description.toLowerCase().includes(q)) return false
       if (filters.category && ev.category !== filters.category) return false
       if (filters.location && ev.location !== filters.location) return false
-      if (filters.date && ev.date < filters.date) return false
-      if (filters.minPrice !== '' && ev.price < Number(filters.minPrice)) return false
-      if (filters.maxPrice !== '' && ev.price > Number(filters.maxPrice)) return false
+      if (filters.dateFrom && ev.date < filters.dateFrom) return false
+      if (filters.dateTo && ev.date > filters.dateTo) return false
       return true
     })
+    if (filters.priceSort === 'asc') results.sort((a, b) => a.price - b.price)
+    if (filters.priceSort === 'desc') results.sort((a, b) => b.price - a.price)
+    return results
   }, [searchQuery, filters])
 
   // ── Group handlers ─────────────────────────────────────────
