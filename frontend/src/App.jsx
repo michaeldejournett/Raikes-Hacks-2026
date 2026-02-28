@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { api } from './api'
 import Navbar from './components/Navbar'
 import SearchFilters from './components/SearchFilters'
@@ -13,12 +13,27 @@ const DEFAULT_FILTERS = {
   location: '',
 }
 
+const DEBOUNCE_MS = 400
+
 export default function App() {
+  const [searchInput, setSearchInput]     = useState('')
   const [searchQuery, setSearchQuery]     = useState('')
   const [filters, setFilters]             = useState(DEFAULT_FILTERS)
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [events, setEvents]               = useState([])
   const [loading, setLoading]             = useState(true)
+  const debounceRef = useRef(null)
+
+  const handleSearchChange = (value) => {
+    setSearchInput(value)
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => setSearchQuery(value), DEBOUNCE_MS)
+  }
+
+  const handleSearchSubmit = () => {
+    clearTimeout(debounceRef.current)
+    setSearchQuery(searchInput)
+  }
 
   const loadEvents = async () => {
     try {
@@ -36,7 +51,7 @@ export default function App() {
   const filteredEvents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     const results = events.filter((ev) => {
-      if (q && !ev.name.toLowerCase().includes(q) && !ev.description.toLowerCase().includes(q)) return false
+      if (q && !ev.name.toLowerCase().includes(q) && !(ev.description || '').toLowerCase().includes(q)) return false
       if (filters.category && ev.category !== filters.category) return false
       if (filters.location && ev.location !== filters.location) return false
       if (filters.dateFrom && ev.date < filters.dateFrom) return false
@@ -56,8 +71,9 @@ export default function App() {
   return (
     <>
       <Navbar
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
+        searchQuery={searchInput}
+        onSearchChange={handleSearchChange}
+        onSearchSubmit={handleSearchSubmit}
         onLogoClick={() => { setSelectedEvent(null); loadEvents() }}
       />
 

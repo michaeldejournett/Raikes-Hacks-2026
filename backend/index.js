@@ -2,7 +2,6 @@ import express from 'express'
 import cors from 'cors'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { initDb } from './db.js'
 import eventsRouter from './routes/events.js'
 import groupsRouter from './routes/groups.js'
 
@@ -24,7 +23,6 @@ if (process.env.NODE_ENV === 'production') {
   })
 }
 
-initDb()
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`)
 })

@@ -38,6 +38,10 @@ router.get('/:id', (req, res) => {
   }
 })
 
+function safeParseTags(raw) {
+  try { return JSON.parse(raw || '[]') } catch { return [] }
+}
+
 function formatEvent(row) {
   return {
     id: row.id,
@@ -51,8 +55,10 @@ function formatEvent(row) {
     venue: row.venue,
     price: row.price,
     category: row.category,
-    tags: JSON.parse(row.tags || '[]'),
+    tags: safeParseTags(row.tags),
     groupCount: row.groupCount,
+    url: row.url || null,
+    imageUrl: row.image_url || null,
   }
 }
 

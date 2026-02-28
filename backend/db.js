@@ -1,9 +1,11 @@
 import Database from 'better-sqlite3'
+import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const dbPath = path.join(__dirname, 'gather.db')
+const scrapedPath = path.join(__dirname, '..', 'scraped', 'events.json')
 
 const db = new Database(dbPath)
 db.pragma('journal_mode = WAL')
@@ -11,7 +13,7 @@ db.pragma('foreign_keys = ON')
 
 export default db
 
-export function initDb() {
+function initDb() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,7 +27,9 @@ export function initDb() {
       venue TEXT,
       price REAL DEFAULT 0,
       category TEXT,
-      tags TEXT DEFAULT '[]'
+      tags TEXT DEFAULT '[]',
+      url TEXT,
+      image_url TEXT
     )
   `)
 
@@ -50,14 +54,92 @@ export function initDb() {
     )
   `)
 
+  // Migrate: add columns that may not exist in older databases
+  for (const col of ['url TEXT', 'image_url TEXT']) {
+    try { db.exec(`ALTER TABLE events ADD COLUMN ${col}`) } catch { /* already exists */ }
+  }
+
   const count = db.prepare('SELECT COUNT(*) AS count FROM events').get().count
   if (count === 0) {
-    seedEvents()
-    console.log('Seeded events table')
+    if (fs.existsSync(scrapedPath)) {
+      seedFromScraped()
+    } else {
+      seedFallbackEvents()
+    }
   }
 }
 
-function seedEvents() {
+// ── Map scraped event fields to our schema ──────────────────────────
+
+function parseIsoDatetime(iso) {
+  if (!iso) return { date: null, time: null }
+  const date = iso.slice(0, 10)
+  const time = iso.slice(11, 16)
+  return { date, time }
+}
+
+const CATEGORY_RULES = [
+  { keywords: ['concert', 'jazz', 'music', 'band', 'choir', 'orchestra', 'recital', 'symphony', 'opera', 'sing'], category: 'music' },
+  { keywords: ['sport', 'basketball', 'football', 'soccer', 'volleyball', 'baseball', 'tennis', 'golf', 'swim', 'track', 'climb', 'run', 'race', 'athletic', 'fitness', 'gym'], category: 'sports' },
+  { keywords: ['food', 'dinner', 'lunch', 'pizza', 'cook', 'bake', 'brew', 'beer', 'wine', 'tasting'], category: 'food' },
+  { keywords: ['art', 'exhibit', 'gallery', 'museum', 'paint', 'sculpt', 'theater', 'theatre', 'dance', 'film', 'cinema', 'photo'], category: 'arts' },
+  { keywords: ['yoga', 'meditat', 'wellness', 'health', 'mental', 'counsel', 'therapy'], category: 'health' },
+  { keywords: ['career', 'intern', 'resume', 'job', 'recruit', 'employer', 'profession', 'grad school'], category: 'education' },
+  { keywords: ['hack', 'code', 'program', 'software', 'tech', 'data', 'cyber', 'comput', 'engineer', 'robot', 'ai ', 'machine learn'], category: 'technology' },
+  { keywords: ['volunteer', 'community', 'service', 'garden', 'sustainab', 'equity', 'divers'], category: 'community' },
+]
+
+function inferCategory(ev) {
+  const text = `${ev.title || ''} ${ev.description || ''} ${ev.group || ''}`.toLowerCase()
+  for (const rule of CATEGORY_RULES) {
+    if (rule.keywords.some((kw) => text.includes(kw))) return rule.category
+  }
+  return 'community'
+}
+
+function seedFromScraped() {
+  const raw = JSON.parse(fs.readFileSync(scrapedPath, 'utf-8'))
+  const events = raw.events || []
+
+  const insert = db.prepare(`
+    INSERT INTO events (name, description, date, time, end_date, end_time, location, venue, price, category, tags, url, image_url)
+    VALUES (@name, @description, @date, @time, @endDate, @endTime, @location, @venue, @price, @category, @tags, @url, @imageUrl)
+  `)
+
+  const seed = db.transaction((list) => {
+    for (const ev of list) {
+      const start = parseIsoDatetime(ev.start)
+      const end = parseIsoDatetime(ev.end)
+      if (!start.date) continue
+
+      const tags = [...(ev.audience || [])]
+      if (ev.group) tags.push(ev.group)
+
+      insert.run({
+        name: ev.title || 'Untitled Event',
+        description: ev.description || '',
+        date: start.date,
+        time: start.time,
+        endDate: end.date || start.date,
+        endTime: end.time || start.time,
+        location: 'Lincoln, NE',
+        venue: ev.location || '',
+        price: 0,
+        category: inferCategory(ev),
+        tags: JSON.stringify(tags),
+        url: ev.url || '',
+        imageUrl: ev.image_url || '',
+      })
+    }
+  })
+
+  seed(events)
+  console.log(`Seeded ${events.length} events from scraped data`)
+}
+
+// ── Hardcoded fallback events (used when no scraped data available) ──
+
+function seedFallbackEvents() {
   const insert = db.prepare(`
     INSERT INTO events (name, description, date, time, end_date, end_time, location, venue, price, category, tags)
     VALUES (@name, @description, @date, @time, @endDate, @endTime, @location, @venue, @price, @category, @tags)
@@ -151,4 +233,8 @@ function seedEvents() {
       tags: ['beer', 'craft beer', '21+', 'festival', 'live music'],
     },
   ])
+  console.log('Seeded fallback events')
 }
+
+// Run after all declarations are ready
+initDb()
