@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '../api'
 import { getCategoryMeta } from '../data/events'
 import { generateIcs } from '../utils/icsGenerator'
 import GroupModal from './GroupModal'
+import GroupMessageBoard from './GroupMessageBoard'
 
 function formatDate(dateStr) {
   if (!dateStr) return ''
@@ -22,41 +23,84 @@ export default function EventDetail({ event, onBack }) {
   const cat = getCategoryMeta(event.category)
 
   const [modal, setModal]           = useState(null)
-  const [joinedIds, setJoinedIds]   = useState(new Set())
+  const [myName, setMyName]         = useState(() => sessionStorage.getItem('curia_name') || '')
   const [groups, setGroups]         = useState([])
   const [loadingGroups, setLoadingGroups] = useState(true)
+  const [expandedChat, setExpandedChat]   = useState(null)
+  const [copiedId, setCopiedId]           = useState(null)
 
-  const loadGroups = async () => {
+  const loadGroups = useCallback(async () => {
     try {
-      const data = await api.getGroups(event.id)
+      const data = await api.getGroups(event.id, myName || undefined)
       setGroups(data)
     } catch (err) {
       console.error('Failed to load groups:', err)
     } finally {
       setLoadingGroups(false)
     }
-  }
+  }, [event.id, myName])
 
-  useEffect(() => { loadGroups() }, [event.id])
+  useEffect(() => { loadGroups() }, [loadGroups])
 
-  const handleModalConfirm = async ({ yourName, groupName, description }) => {
+  const isMemberOf = (group) =>
+    group.members.some(m => m.name === myName)
+
+  const handleModalConfirm = async (data) => {
     try {
       if (modal.mode === 'create') {
         await api.createGroup({
           eventId: event.id,
-          name: groupName,
-          description,
-          creator: yourName,
+          name: data.groupName,
+          description: data.description,
+          creator: data.yourName,
+          email: data.email,
+          phone: data.phone,
+          capacity: data.capacity,
+          meetupDetails: data.meetupDetails,
+          vibeTags: data.vibeTags,
         })
       } else {
-        await api.joinGroup(modal.group.id, yourName)
-        setJoinedIds((prev) => new Set([...prev, modal.group.id]))
+        await api.joinGroup(modal.group.id, {
+          name: data.yourName,
+          email: data.email,
+          phone: data.phone,
+        })
       }
+      setMyName(data.yourName)
+      sessionStorage.setItem('curia_name', data.yourName)
       await loadGroups()
     } catch (err) {
       console.error('Group operation failed:', err)
     }
     setModal(null)
+  }
+
+  const handleLeave = async (group) => {
+    if (!myName) return
+    const isCreator = group.creator === myName
+    const msg = isCreator
+      ? 'You created this group. Leaving will delete it for everyone. Continue?'
+      : 'Leave this group?'
+    if (!window.confirm(msg)) return
+
+    try {
+      await api.leaveGroup(group.id, myName)
+      await loadGroups()
+    } catch (err) {
+      console.error('Failed to leave group:', err)
+    }
+  }
+
+  const shareGroup = (group) => {
+    const url = `${window.location.origin}${window.location.pathname}?event=${event.id}&group=${group.id}`
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(group.id)
+      setTimeout(() => setCopiedId(null), 2000)
+    })
+  }
+
+  const toggleChat = (groupId) => {
+    setExpandedChat(prev => prev === groupId ? null : groupId)
   }
 
   const isSameDay = event.date === event.endDate
@@ -114,7 +158,6 @@ export default function EventDetail({ event, onBack }) {
                 <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{event.location}</div>
               </div>
             </div>
-
           </div>
 
           <p className="detail-description">{event.description}</p>
@@ -158,6 +201,7 @@ export default function EventDetail({ event, onBack }) {
         </div>
       </div>
 
+      {/* ── Groups Section ── */}
       <div className="groups-section">
         <div className="groups-section-header">
           <h2 className="groups-section-title">
@@ -173,41 +217,131 @@ export default function EventDetail({ event, onBack }) {
 
         {!loadingGroups && groups.length === 0 ? (
           <div className="groups-empty">
-            <p>No groups yet — be the first to organize one! 🚀</p>
+            <p>No groups yet — be the first to organize one!</p>
           </div>
         ) : (
           <div className="groups-list">
             {groups.map((group) => {
-              const hasJoined = joinedIds.has(group.id)
+              const joined = isMemberOf(group)
+              const pct = group.capacity > 0
+                ? Math.min(100, Math.round((group.memberCount / group.capacity) * 100))
+                : null
+
               return (
-                <div key={group.id} className="group-card">
+                <div key={group.id} className={`group-card ${group.isFull ? 'group-card-full' : ''}`}>
                   <div className="group-card-header">
-                    <span className="group-card-name">{group.name}</span>
-                    {hasJoined ? (
-                      <span className="badge joined-badge">✓ Joined</span>
-                    ) : (
-                      <button
-                        className="btn btn-outline btn-sm"
-                        onClick={() => setModal({ mode: 'join', group })}
-                      >
-                        Join
-                      </button>
-                    )}
+                    <div className="group-card-title-row">
+                      <span className="group-card-name">{group.name}</span>
+                      <span className={`group-status-badge ${group.status}`}>
+                        {group.status === 'full' ? 'Full' : 'Open'}
+                      </span>
+                    </div>
+                    <div className="group-card-actions">
+                      {joined ? (
+                        <>
+                          <span className="badge joined-badge">✓ Joined</span>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => handleLeave(group)}
+                            title={group.creator === myName ? 'Delete group' : 'Leave group'}
+                          >
+                            {group.creator === myName ? '🗑️' : '🚪'}
+                          </button>
+                        </>
+                      ) : !group.isFull ? (
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => setModal({ mode: 'join', group })}
+                        >
+                          Join
+                        </button>
+                      ) : (
+                        <span className="badge full-badge">Group Full</span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="group-card-meta">
-                    Created by {group.creator} · {group.members.length} {group.members.length === 1 ? 'member' : 'members'}
+                    Created by {group.creator} · {group.memberCount} {group.memberCount === 1 ? 'member' : 'members'}
+                    {group.capacity > 0 && ` / ${group.capacity} max`}
                   </div>
+
+                  {/* Capacity bar */}
+                  {pct !== null && (
+                    <div className="capacity-bar-wrapper">
+                      <div className="capacity-bar">
+                        <div
+                          className={`capacity-bar-fill ${group.isFull ? 'full' : ''}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="capacity-label">{group.memberCount}/{group.capacity}</span>
+                    </div>
+                  )}
 
                   {group.description && (
                     <p className="group-card-description">{group.description}</p>
                   )}
 
+                  {/* Meetup details */}
+                  {group.meetupDetails && (
+                    <div className="group-meetup">
+                      <span className="group-meetup-icon">📍</span>
+                      <span>{group.meetupDetails}</span>
+                    </div>
+                  )}
+
+                  {/* Vibe tags */}
+                  {group.vibeTags?.length > 0 && (
+                    <div className="group-vibes">
+                      {group.vibeTags.map(tag => (
+                        <span key={tag} className="vibe-tag">{tag}</span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Members with contact info (visible only to group members) */}
                   <div className="group-members">
                     {group.members.map((m, i) => (
-                      <span key={i} className="member-chip">{m}</span>
+                      <div key={i} className="member-chip-row">
+                        <span className="member-chip">{m.name}</span>
+                        {joined && (m.email || m.phone) && (
+                          <span className="member-contact">
+                            {m.email && <a href={`mailto:${m.email}`} title={m.email}>✉️</a>}
+                            {m.phone && <a href={`tel:${m.phone}`} title={m.phone}>📱</a>}
+                          </span>
+                        )}
+                      </div>
                     ))}
                   </div>
+
+                  {!joined && group.memberCount > 0 && (
+                    <p className="contact-hint">Join to see contact info</p>
+                  )}
+
+                  {/* Share + Chat toolbar */}
+                  <div className="group-toolbar">
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => shareGroup(group)}
+                      title="Copy share link"
+                    >
+                      {copiedId === group.id ? '✓ Copied!' : '🔗 Share'}
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => toggleChat(group.id)}
+                    >
+                      💬 {expandedChat === group.id ? 'Hide Chat' : 'Chat'}
+                    </button>
+                  </div>
+
+                  {expandedChat === group.id && (
+                    <GroupMessageBoard
+                      groupId={group.id}
+                      myName={joined ? myName : null}
+                    />
+                  )}
                 </div>
               )
             })}

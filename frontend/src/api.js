@@ -17,9 +17,23 @@ export const api = {
   getEvent: (id) => request(`/api/events/${id}`),
   searchEvents: (q, top = 50) =>
     request(`/api/events/search?${new URLSearchParams({ q, top })}`),
-  getGroups: (eventId) => request(`/api/groups?eventId=${eventId}`),
+  getGroups: (eventId, viewer) => {
+    const params = new URLSearchParams({ eventId })
+    if (viewer) params.set('viewer', viewer)
+    return request(`/api/groups?${params}`)
+  },
   createGroup: (data) =>
     request('/api/groups', { method: 'POST', body: JSON.stringify(data) }),
-  joinGroup: (groupId, name) =>
-    request(`/api/groups/${groupId}/join`, { method: 'POST', body: JSON.stringify({ name }) }),
+  joinGroup: (groupId, data) =>
+    request(`/api/groups/${groupId}/join`, { method: 'POST', body: JSON.stringify(data) }),
+  leaveGroup: (groupId, name) =>
+    request(`/api/groups/${groupId}/leave`, { method: 'POST', body: JSON.stringify({ name }) }),
+  getGroupById: (groupId, viewer) => {
+    const params = viewer ? `?viewer=${encodeURIComponent(viewer)}` : ''
+    return request(`/api/groups/${groupId}${params}`)
+  },
+  getMessages: (groupId) =>
+    request(`/api/groups/${groupId}/messages`),
+  postMessage: (groupId, author, body) =>
+    request(`/api/groups/${groupId}/messages`, { method: 'POST', body: JSON.stringify({ author, body }) }),
 }

@@ -64,7 +64,18 @@ export default function App() {
     }
   }
 
-  useEffect(() => { loadEvents() }, [])
+  useEffect(() => {
+    loadEvents().then(() => {
+      const params = new URLSearchParams(window.location.search)
+      const eventId = params.get('event')
+      if (eventId) {
+        api.getEvent(Number(eventId)).then(ev => {
+          if (ev) setSelectedEvent(ev)
+        }).catch(() => {})
+        window.history.replaceState({}, '', window.location.pathname)
+      }
+    })
+  }, [])
 
   const filteredEvents = useMemo(() => {
     let source = searchResults ?? events
