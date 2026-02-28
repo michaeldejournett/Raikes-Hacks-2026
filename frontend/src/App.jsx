@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { EVENTS } from './data/events'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { api } from './api'
 import Navbar from './components/Navbar'
 import SearchFilters from './components/SearchFilters'
 import EventCard from './components/EventCard'
@@ -13,19 +13,45 @@ const DEFAULT_FILTERS = {
   location: '',
 }
 
-let nextGroupId = 1
+const DEBOUNCE_MS = 400
 
 export default function App() {
-  const [searchQuery, setSearchQuery]   = useState('')
-  const [filters, setFilters]           = useState(DEFAULT_FILTERS)
+  const [searchInput, setSearchInput]     = useState('')
+  const [searchQuery, setSearchQuery]     = useState('')
+  const [filters, setFilters]             = useState(DEFAULT_FILTERS)
   const [selectedEvent, setSelectedEvent] = useState(null)
-  const [groups, setGroups]             = useState([])
+  const [events, setEvents]               = useState([])
+  const [loading, setLoading]             = useState(true)
+  const debounceRef = useRef(null)
 
-  // ── Filtering ──────────────────────────────────────────────
+  const handleSearchChange = (value) => {
+    setSearchInput(value)
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => setSearchQuery(value), DEBOUNCE_MS)
+  }
+
+  const handleSearchSubmit = () => {
+    clearTimeout(debounceRef.current)
+    setSearchQuery(searchInput)
+  }
+
+  const loadEvents = async () => {
+    try {
+      const data = await api.getEvents()
+      setEvents(data)
+    } catch (err) {
+      console.error('Failed to load events:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { loadEvents() }, [])
+
   const filteredEvents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    const results = EVENTS.filter((ev) => {
-      if (q && !ev.name.toLowerCase().includes(q) && !ev.description.toLowerCase().includes(q)) return false
+    const results = events.filter((ev) => {
+      if (q && !ev.name.toLowerCase().includes(q) && !(ev.description || '').toLowerCase().includes(q)) return false
       if (filters.category && ev.category !== filters.category) return false
       if (filters.location && ev.location !== filters.location) return false
       if (filters.dateFrom && ev.date < filters.dateFrom) return false
@@ -35,55 +61,25 @@ export default function App() {
     if (filters.priceSort === 'asc') results.sort((a, b) => a.price - b.price)
     if (filters.priceSort === 'desc') results.sort((a, b) => b.price - a.price)
     return results
-  }, [searchQuery, filters])
+  }, [events, searchQuery, filters])
 
-  // ── Group handlers ─────────────────────────────────────────
-  const handleCreateGroup = ({ eventId, name, description, creator, members }) => {
-    setGroups((prev) => [
-      ...prev,
-      { id: nextGroupId++, eventId, name, description, creator, members },
-    ])
+  const handleBack = () => {
+    setSelectedEvent(null)
+    loadEvents()
   }
-
-  const handleJoinGroup = (groupId, memberName) => {
-    let joined = false
-    setGroups((prev) =>
-      prev.map((g) => {
-        if (g.id !== groupId) return g
-        if (g.members.includes(memberName)) return g
-        joined = true
-        return { ...g, members: [...g.members, memberName] }
-      })
-    )
-    return joined
-  }
-
-  // ── Group count per event ──────────────────────────────────
-  const groupCountByEvent = useMemo(() => {
-    const counts = {}
-    for (const g of groups) {
-      counts[g.eventId] = (counts[g.eventId] ?? 0) + 1
-    }
-    return counts
-  }, [groups])
 
   return (
     <>
       <Navbar
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        onLogoClick={() => setSelectedEvent(null)}
+        searchQuery={searchInput}
+        onSearchChange={handleSearchChange}
+        onSearchSubmit={handleSearchSubmit}
+        onLogoClick={() => { setSelectedEvent(null); loadEvents() }}
       />
 
       <main className="page">
         {selectedEvent ? (
-          <EventDetail
-            event={selectedEvent}
-            groups={groups}
-            onBack={() => setSelectedEvent(null)}
-            onCreateGroup={handleCreateGroup}
-            onJoinGroup={handleJoinGroup}
-          />
+          <EventDetail event={selectedEvent} onBack={handleBack} />
         ) : (
           <div className="page-layout">
             <SearchFilters
@@ -95,13 +91,19 @@ export default function App() {
             <section>
               <div className="events-header">
                 <p className="events-count">
-                  <strong>{filteredEvents.length}</strong>{' '}
-                  {filteredEvents.length === 1 ? 'event' : 'events'} found
+                  {loading ? (
+                    'Loading events…'
+                  ) : (
+                    <>
+                      <strong>{filteredEvents.length}</strong>{' '}
+                      {filteredEvents.length === 1 ? 'event' : 'events'} found
+                    </>
+                  )}
                 </p>
               </div>
 
               <div className="event-grid">
-                {filteredEvents.length === 0 ? (
+                {!loading && filteredEvents.length === 0 ? (
                   <div className="no-results">
                     <div className="no-results-icon">🔍</div>
                     <p style={{ fontWeight: 600, marginBottom: 4 }}>No events match your search</p>
@@ -112,7 +114,7 @@ export default function App() {
                     <EventCard
                       key={ev.id}
                       event={ev}
-                      groupCount={groupCountByEvent[ev.id] ?? 0}
+                      groupCount={ev.groupCount ?? 0}
                       onClick={() => setSelectedEvent(ev)}
                     />
                   ))

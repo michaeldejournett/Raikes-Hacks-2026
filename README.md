@@ -1,192 +1,77 @@
-# Raikes-Hacks-2026
-
-Event discovery app built for Raikes Hackathon 2026. Find events, filter by category/date/price/location, create groups to attend together, and download calendar files.
-
-## Getting Started
-
-### Run the frontend
-
-From the repo root in PowerShell or Command Prompt:
-
-```
-.\start.bat
-```
-
-This installs dependencies and starts the dev server. Then open **http://localhost:5173** in your browser.
-
-> **Note:** If you've already run it once, `npm install` will be fast since packages are cached.
+# Curia
 
 This is the RaikesHacks 2026 project for the team "Is There Input Length Validation?" consisting of Michael, Will, and Rishi.
 
----
+An event discovery app with a **Looking For Group** feature — find UNL events and organize groups to attend together.
 
-## UNL Events Search API
+## Quick Start
 
-A self-updating event aggregator and natural-language search API for the University of Nebraska–Lincoln. Scrapes [events.unl.edu](https://events.unl.edu) and [Campus Labs Engage](https://unl.campuslabs.com/engage/events), deduplicates, and exposes a search endpoint powered by keyword matching with optional local LLM expansion.
+> **Prerequisites:** Node.js 18+ ([download](https://nodejs.org))
 
-### Features
-
-- Scrapes all upcoming UNL events via RSS + per-event enrichment (image, group, audience)
-- Scrapes Campus Labs Engage events and cross-deduplicates with the UNL feed
-- Periodic background re-scraping (default: every hour) — no restarts needed to stay fresh
-- Natural-language search with date parsing (`"free food this weekend"`, `"events tomorrow"`)
-- Optional keyword expansion via a local [Ollama](https://ollama.com) model (runs inside Docker)
-- REST API with Swagger UI at `/docs`
-
-### Project Structure
-
-```
-├── api/
-│   ├── api.py            # FastAPI app — endpoints, periodic scrape loop
-│   ├── scraper.py        # Web scraper (events.unl.edu + Campus Labs Engage)
-│   ├── search.py         # Keyword search, date filtering, Ollama integration
-│   ├── requirements.txt
-│   └── Dockerfile
-├── scraped/              # Runtime data — gitignored, mounted as a Docker volume
-├── docker-compose.yml          # Default: CPU / Mac
-├── docker-compose.nvidia.yml   # Overlay: NVIDIA GPU
-└── docker-compose.amd.yml      # Overlay: AMD GPU (ROCm, Linux only)
+```bash
+git clone https://github.com/michaeldejournett/Raikes-Hacks-2026.git
+cd Raikes-Hacks-2026
+npm start
 ```
 
-### Quick Start
+That's it. The backend starts on `http://localhost:3001` with a SQLite database (auto-created, no setup needed). If `scraped/events.json` exists (from the scraper), real UNL events are loaded automatically. Otherwise, sample events are used as a fallback.
 
-**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Mac/Windows) or Docker Engine + Compose (Linux), ~2 GB free disk for the model.
+Then in a second terminal, start the frontend:
 
-**Mac / CPU-only / Windows:**
+```bash
+cd frontend
+npm run dev
+```
+
+Open `http://localhost:5173` — the frontend proxies API calls to the backend automatically.
+
+## Tech Stack
+
+- **Frontend:** React + Vite
+- **Backend:** Node.js + Express + SQLite (events + groups API)
+- **Scraper:** Python + FastAPI + Ollama (UNL event scraping + LLM search — runs via Docker)
+
+## Architecture
+
+1. **Express API** (`backend/`) — Serves events and the LFG groups feature (create/join groups). Uses SQLite, zero config. On startup, loads real scraped events from `scraped/events.json` if available.
+2. **FastAPI Scraper** (`api/`) — Scrapes real UNL events from events.unl.edu + Campus Labs Engage, with LLM-powered natural-language search via Ollama. Runs in Docker. Outputs to `scraped/events.json`.
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/events` | List all events (includes group counts) |
+| GET | `/api/events/:id` | Get a single event |
+| GET | `/api/groups?eventId=` | List groups for an event |
+| POST | `/api/groups` | Create a group |
+| POST | `/api/groups/:id/join` | Join a group |
+
+## Scraping Real Events
+
+To populate the app with real UNL events, run the scraper via Docker:
+
 ```bash
 docker compose up --build
 ```
 
-**Linux or Windows + NVIDIA GPU:**
-```bash
-# Linux: install nvidia-container-toolkit first
-# https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
-docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up --build
-```
+This scrapes events.unl.edu and writes to `scraped/events.json`. Next time the Express backend starts with a fresh database, it will load these events automatically.
 
-**Linux + AMD GPU (ROCm):**
+For GPU acceleration:
+
 ```bash
-# Requires ROCm drivers — https://rocm.docs.amd.com/projects/install-on-linux/en/latest/
-# Add your user to the video and render groups first:
-#   sudo usermod -aG video,render $USER
+# NVIDIA GPU
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up --build
+
+# AMD GPU (ROCm, Linux only)
 docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build
 ```
 
-> **First run:** The `llama3.2:1b` model (~1.3 GB) downloads automatically. Subsequent starts are instant — the model is cached in the `ollama_data` Docker volume.
+## Deploying to Railway (Free)
 
-The API is available at **http://localhost:8080** once the containers are up.
+1. Push your repo to GitHub
+2. Sign up at [railway.app](https://railway.app) and create a new project from your GitHub repo
+3. Railway auto-detects the `railway.json` config — no manual setup needed
+4. Set the environment variable `NODE_ENV` = `production`
+5. Deploy — the app is live at the URL Railway provides
 
-### API Endpoints
-
-#### `GET /health`
-Returns service status and scrape state.
-```json
-{
-  "status": "ok",
-  "events_loaded": 842,
-  "last_scraped": "2026-02-28T20:00:00+00:00",
-  "scrape_running": false,
-  "scrape_interval_seconds": 3600
-}
-```
-
-#### `GET /events`
-Returns all cached events in the standard JSON format.
-```bash
-curl http://localhost:8080/events
-```
-
-```json
-{
-  "scraped_at": "2026-02-28T20:00:00+00:00",
-  "count": 842,
-  "events": [
-    {
-      "title": "Flatland Climbing Competition",
-      "url": "https://events.unl.edu/2026/02/28/195255/",
-      "start": "2026-02-28T09:00:00-06:00",
-      "end": "2026-02-28T16:00:00-06:00",
-      "location": "Campus Recreation Center",
-      "description": "Connect with climbers from around the Mid-West...",
-      "group": "Campus Recreation",
-      "image_url": "https://...",
-      "audience": ["Recreation", "Sports"],
-      "source": "https://events.unl.edu/upcoming/?format=rss&limit=-1"
-    }
-  ]
-}
-```
-
-#### `GET /search`
-Search events with a natural-language query.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `q` | string | required | Search query (e.g. `"free food this weekend"`) |
-| `top` | int | `10` | Max results (1–100) |
-| `model` | string | `llama3.2:1b` | Ollama model for keyword expansion |
-| `no_llm` | bool | `false` | Skip Ollama, use raw keywords only |
-
-```bash
-curl "http://localhost:8080/search?q=free+food+this+weekend&top=5"
-```
-
-```json
-{
-  "query": "free food this weekend",
-  "terms": ["free", "food", "lunch", "snacks"],
-  "llm_used": true,
-  "date_range": {"start": "2026-03-01", "end": "2026-03-02"},
-  "total_searched": 127,
-  "count": 3,
-  "results": [
-    {
-      "score": 12,
-      "title": "Free Pizza — Engineering Open House",
-      "url": "https://events.unl.edu/...",
-      "start": "2026-03-01T12:00:00",
-      "location": "Scott Engineering Center",
-      "group": "College of Engineering",
-      "image_url": "https://..."
-    }
-  ]
-}
-```
-
-#### `POST /reload`
-Trigger an immediate re-scrape without waiting for the next scheduled interval.
-```bash
-curl -X POST http://localhost:8080/reload
-```
-Returns `409` if a scrape is already running.
-
-#### `GET /docs`
-Interactive Swagger UI — try all endpoints in the browser.
-
-### Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SCRAPE_INTERVAL` | `3600` | Seconds between re-scrapes. |
-| `SCRAPE_WORKERS` | `10` | Parallel workers for per-event detail enrichment. |
-| `OLLAMA_MODEL` | `llama3.2:1b` | Ollama model used for keyword expansion. |
-| `OLLAMA_URL` | `http://ollama:11434/api/generate` | Ollama API endpoint. |
-| `EVENTS_FILE` | `scraped/events.json` | Path to the cached events JSON inside the container. |
-
-### Running Locally (without Docker)
-
-Requires Python 3.10+ and [Ollama](https://ollama.com) running locally.
-
-```bash
-# Install dependencies
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r api/requirements.txt
-
-# Populate the cache with a one-time scrape
-python api/scraper.py
-
-# Start the API (Ollama optional — search works without it)
-uvicorn api.api:app --reload
-```
-
-The API will be at **http://localhost:8000**.
+The `scraped/events.json` file in your repo is included in the deploy, so real events load automatically.

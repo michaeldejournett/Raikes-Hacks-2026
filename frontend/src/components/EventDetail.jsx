@@ -1,34 +1,60 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { api } from '../api'
 import { getCategoryMeta } from '../data/events'
 import { generateIcs } from '../utils/icsGenerator'
 import GroupModal from './GroupModal'
 
 function formatDate(dateStr) {
+  if (!dateStr) return ''
   const d = new Date(dateStr + 'T12:00:00')
   return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 }
 
 function formatTime(timeStr) {
+  if (!timeStr) return ''
   const [h, m] = timeStr.split(':').map(Number)
   const ampm = h >= 12 ? 'PM' : 'AM'
   const hour = h % 12 || 12
   return `${hour}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
-export default function EventDetail({ event, groups, onBack, onCreateGroup, onJoinGroup }) {
+export default function EventDetail({ event, onBack }) {
   const cat = getCategoryMeta(event.category)
 
-  const [modal, setModal] = useState(null) // null | { mode: 'create' } | { mode: 'join', group }
-  const [joinedIds, setJoinedIds] = useState(new Set())
+  const [modal, setModal]           = useState(null)
+  const [joinedIds, setJoinedIds]   = useState(new Set())
+  const [groups, setGroups]         = useState([])
+  const [loadingGroups, setLoadingGroups] = useState(true)
 
-  const eventGroups = groups.filter((g) => g.eventId === event.id)
+  const loadGroups = async () => {
+    try {
+      const data = await api.getGroups(event.id)
+      setGroups(data)
+    } catch (err) {
+      console.error('Failed to load groups:', err)
+    } finally {
+      setLoadingGroups(false)
+    }
+  }
 
-  const handleModalConfirm = ({ yourName, groupName, description }) => {
-    if (modal.mode === 'create') {
-      onCreateGroup({ eventId: event.id, name: groupName, description, creator: yourName, members: [yourName] })
-    } else {
-      const updated = onJoinGroup(modal.group.id, yourName)
-      if (updated) setJoinedIds((prev) => new Set([...prev, modal.group.id]))
+  useEffect(() => { loadGroups() }, [event.id])
+
+  const handleModalConfirm = async ({ yourName, groupName, description }) => {
+    try {
+      if (modal.mode === 'create') {
+        await api.createGroup({
+          eventId: event.id,
+          name: groupName,
+          description,
+          creator: yourName,
+        })
+      } else {
+        await api.joinGroup(modal.group.id, yourName)
+        setJoinedIds((prev) => new Set([...prev, modal.group.id]))
+      }
+      await loadGroups()
+    } catch (err) {
+      console.error('Group operation failed:', err)
     }
     setModal(null)
   }
@@ -37,7 +63,6 @@ export default function EventDetail({ event, groups, onBack, onCreateGroup, onJo
 
   return (
     <div>
-      {/* Back button */}
       <button className="detail-back" onClick={onBack}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
           <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
@@ -45,7 +70,6 @@ export default function EventDetail({ event, groups, onBack, onCreateGroup, onJo
         Back to events
       </button>
 
-      {/* Hero card */}
       <div className="detail-hero">
         <div className="detail-hero-banner" style={{ background: cat.color }} />
         <div className="detail-hero-body">
@@ -131,13 +155,12 @@ export default function EventDetail({ event, groups, onBack, onCreateGroup, onJo
         </div>
       </div>
 
-      {/* Groups section */}
       <div className="groups-section">
         <div className="groups-section-header">
           <h2 className="groups-section-title">
             👥 Going with a group?
             <span style={{ fontWeight: 400, fontSize: '0.85rem', color: 'var(--text-muted)', marginLeft: 8 }}>
-              {eventGroups.length} {eventGroups.length === 1 ? 'group' : 'groups'}
+              {loadingGroups ? '…' : `${groups.length} ${groups.length === 1 ? 'group' : 'groups'}`}
             </span>
           </h2>
           <button className="btn btn-primary btn-sm" onClick={() => setModal({ mode: 'create' })}>
@@ -145,13 +168,13 @@ export default function EventDetail({ event, groups, onBack, onCreateGroup, onJo
           </button>
         </div>
 
-        {eventGroups.length === 0 ? (
+        {!loadingGroups && groups.length === 0 ? (
           <div className="groups-empty">
             <p>No groups yet — be the first to organize one! 🚀</p>
           </div>
         ) : (
           <div className="groups-list">
-            {eventGroups.map((group) => {
+            {groups.map((group) => {
               const hasJoined = joinedIds.has(group.id)
               return (
                 <div key={group.id} className="group-card">
@@ -189,7 +212,6 @@ export default function EventDetail({ event, groups, onBack, onCreateGroup, onJo
         )}
       </div>
 
-      {/* Modals */}
       {modal && (
         <GroupModal
           mode={modal.mode}

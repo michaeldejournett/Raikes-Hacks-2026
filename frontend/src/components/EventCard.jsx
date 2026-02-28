@@ -1,11 +1,13 @@
 import { getCategoryMeta } from '../data/events'
 
 function formatDate(dateStr) {
+  if (!dateStr) return ''
   const d = new Date(dateStr + 'T12:00:00')
   return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
 function formatTime(timeStr) {
+  if (!timeStr) return ''
   const [h, m] = timeStr.split(':').map(Number)
   const ampm = h >= 12 ? 'PM' : 'AM'
   const hour = h % 12 || 12

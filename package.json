@@ -1,0 +1,11 @@
+{
+  "name": "gather-events",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "dev": "cd backend && npm run dev",
+    "start": "npm run install:all && cd backend && npm start",
+    "build": "cd frontend && npm run build"
+  }
+}

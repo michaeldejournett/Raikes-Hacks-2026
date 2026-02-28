@@ -1,6 +1,6 @@
 import logo from '../assets/logo.png'
 
-export default function Navbar({ searchQuery, onSearchChange, onLogoClick }) {
+export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, onLogoClick }) {
   return (
     <nav className="navbar">
       <button
@@ -22,6 +22,7 @@ export default function Navbar({ searchQuery, onSearchChange, onLogoClick }) {
           placeholder="Search events…"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && onSearchSubmit?.()}
           aria-label="Search events"
         />
       </div>

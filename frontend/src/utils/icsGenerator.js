@@ -39,8 +39,8 @@ export function generateIcs(event) {
     `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}` +
     `T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`
 
-  const dtStart = toIcsDate(event.date, event.time)
-  const dtEnd   = toIcsDate(event.endDate, event.endTime)
+  const dtStart = toIcsDate(event.date || '', event.time || '00:00')
+  const dtEnd   = toIcsDate(event.endDate || event.date || '', event.endTime || event.time || '00:00')
 
   const lines = [
     'BEGIN:VCALENDAR',
@@ -55,7 +55,7 @@ export function generateIcs(event) {
     `DTEND:${dtEnd}`,
     foldLine(`SUMMARY:${escapeIcs(event.name)}`),
     foldLine(`DESCRIPTION:${escapeIcs(event.description)}`),
-    foldLine(`LOCATION:${escapeIcs(event.venue + ', ' + event.location)}`),
+    foldLine(`LOCATION:${escapeIcs((event.venue || '') + ', ' + (event.location || ''))}`),
     event.price === 0
       ? 'X-COST:Free'
       : foldLine(`X-COST:$${event.price}`),
