@@ -385,6 +385,98 @@ def scrape_events(url: str, timeout: int = DEFAULT_TIMEOUT) -> List[Event]:
 
 
 # ---------------------------------------------------------------------------
+# Campus Labs Engage scraper
+# ---------------------------------------------------------------------------
+
+ENGAGE_API = "https://unl.campuslabs.com/engage/api/discovery/event/search"
+ENGAGE_IMAGE_BASE = "https://se-images.campuslabs.com/clink/images/"
+ENGAGE_EVENT_BASE = "https://unl.campuslabs.com/engage/event/"
+ENGAGE_SOURCE_URL = "https://unl.campuslabs.com/engage/events"
+
+
+def scrape_engage(timeout: int = DEFAULT_TIMEOUT) -> List[Event]:
+    """Page through the Campus Labs Engage API and return all upcoming public events."""
+    today = date.today().isoformat()
+    events: List[Event] = []
+    skip = 0
+    take = 100
+    total: Optional[int] = None
+
+    while total is None or skip < total:
+        params = {
+            "endsAfter": today,
+            "orderByField": "startsOn",
+            "orderByDirection": "ascending",
+            "status": "Approved",
+            "take": take,
+            "skip": skip,
+        }
+        response = requests.get(
+            ENGAGE_API,
+            params=params,
+            headers={"User-Agent": USER_AGENT},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if total is None:
+            total = data.get("@odata.count", 0)
+
+        items = data.get("value") or []
+        if not items:
+            break
+
+        for item in items:
+            desc_html = item.get("description") or ""
+            desc = clean_text(BeautifulSoup(desc_html, "html.parser").get_text()) if desc_html else None
+
+            img_path = item.get("imagePath")
+            image_url = (ENGAGE_IMAGE_BASE + img_path) if img_path else None
+
+            event_id = item.get("id")
+            event_url = f"{ENGAGE_EVENT_BASE}{event_id}" if event_id else ENGAGE_SOURCE_URL
+
+            category_names = [c for c in (item.get("categoryNames") or []) if c]
+            audience = category_names if category_names else None
+
+            events.append(Event(
+                title=clean_text(item.get("name") or "") or "",
+                url=event_url,
+                start=item.get("startsOn"),
+                end=item.get("endsOn"),
+                location=clean_text(item.get("location")),
+                description=desc,
+                group=clean_text(item.get("organizationName")),
+                image_url=image_url,
+                audience=audience,
+                source=ENGAGE_SOURCE_URL,
+            ))
+
+        skip += take
+        print(f"  Fetched {min(skip, total)}/{total} Engage events …")
+
+    return dedupe_events(events)
+
+
+def _norm_title(title: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", title.lower())
+
+
+def cross_dedupe(primary: List[Event], secondary: List[Event]) -> List[Event]:
+    """Merge two event lists, keeping all primary events and only non-duplicate secondary ones.
+
+    Duplicate = same normalized title AND same calendar date for start time.
+    """
+    def key(e: Event) -> tuple:
+        return (_norm_title(e.title or ""), (e.start or "")[:10])
+
+    seen = {key(e) for e in primary}
+    unique = [e for e in secondary if key(e) not in seen]
+    return primary + unique
+
+
+# ---------------------------------------------------------------------------
 # Per-event enrichment — fetches each detail page for image, group, audience
 # ---------------------------------------------------------------------------
 
@@ -508,6 +600,11 @@ def parse_args() -> argparse.Namespace:
         help="Skip visiting individual event pages (skips image, group, and audience).",
     )
     parser.add_argument(
+        "--no-engage",
+        action="store_true",
+        help="Skip scraping Campus Labs Engage (unl.campuslabs.com/engage/events).",
+    )
+    parser.add_argument(
         "--workers",
         type=int,
         default=10,
@@ -549,6 +646,19 @@ def main() -> int:
     if not args.no_enrich:
         print(f"Enriching {len(events)} events (image, group, audience) with {args.workers} workers …")
         events = enrich_events(events, timeout=args.timeout, workers=args.workers)
+
+    if not args.no_engage:
+        try:
+            print("Fetching Campus Labs Engage events …")
+            engage_events = scrape_engage(timeout=args.timeout)
+            before = len(events)
+            events = cross_dedupe(events, engage_events)
+            dupes = len(engage_events) - (len(events) - before)
+            print(f"  Added {len(events) - before} Engage events ({dupes} duplicates removed)")
+        except requests.RequestException as exc:
+            print(f"  Warning: could not fetch Engage events: {exc}")
+        except Exception as exc:
+            print(f"  Warning: Engage scrape failed: {exc}")
 
     payload = {
         "scraped_at": datetime.utcnow().isoformat() + "Z",
