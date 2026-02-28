@@ -7,7 +7,7 @@ import GroupModal from './GroupModal'
 function formatDate(dateStr) {
   if (!dateStr) return ''
   const d = new Date(dateStr + 'T12:00:00')
-  return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Chicago' })
 }
 
 function formatTime(timeStr) {
@@ -15,7 +15,7 @@ function formatTime(timeStr) {
   const [h, m] = timeStr.split(':').map(Number)
   const ampm = h >= 12 ? 'PM' : 'AM'
   const hour = h % 12 || 12
-  return `${hour}:${String(m).padStart(2, '0')} ${ampm}`
+  return `${hour}:${String(m).padStart(2, '0')} ${ampm} CT`
 }
 
 export default function EventDetail({ event, onBack, user }) {
@@ -87,7 +87,11 @@ export default function EventDetail({ event, onBack, user }) {
       </button>
 
       <div className="detail-hero">
-        <div className="detail-hero-banner" style={{ background: cat.color }} />
+        {event.imageUrl ? (
+          <img className="detail-hero-image" src={event.imageUrl} alt={event.name} />
+        ) : (
+          <div className="detail-hero-banner" style={{ background: cat.color }} />
+        )}
         <div className="detail-hero-body">
           <div
             className="detail-category-badge"
@@ -157,10 +161,11 @@ export default function EventDetail({ event, onBack, user }) {
 
             {event.url && (
               <a
-                className="btn btn-outline"
+                className="btn"
                 href={event.url}
                 target="_blank"
                 rel="noopener noreferrer"
+                style={{ background: cat.color, color: '#fff', borderColor: cat.color }}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>

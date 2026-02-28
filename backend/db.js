@@ -251,5 +251,49 @@ function seedFallbackEvents() {
   console.log('Seeded fallback events')
 }
 
+// ── Insert only events not already in the DB (deduplicated by url) ──
+
+export function insertNewEvents(events) {
+  const existingUrls = new Set(
+    db.prepare('SELECT url FROM events WHERE url IS NOT NULL AND url != ""').all().map((r) => r.url)
+  )
+
+  const insert = db.prepare(`
+    INSERT INTO events (name, description, date, time, end_date, end_time, location, venue, price, category, tags, url, image_url)
+    VALUES (@name, @description, @date, @time, @endDate, @endTime, @location, @venue, @price, @category, @tags, @url, @imageUrl)
+  `)
+
+  const batch = db.transaction((list) => {
+    let added = 0
+    for (const ev of list) {
+      if (ev.url && existingUrls.has(ev.url)) continue
+      const start = parseIsoDatetime(ev.start)
+      const end = parseIsoDatetime(ev.end)
+      if (!start.date) continue
+      const tags = [...(ev.audience || [])]
+      if (ev.group) tags.push(ev.group)
+      insert.run({
+        name: ev.title || 'Untitled Event',
+        description: ev.description || '',
+        date: start.date,
+        time: start.time,
+        endDate: end.date || start.date,
+        endTime: end.time || start.time,
+        location: 'Lincoln, NE',
+        venue: ev.location || '',
+        price: 0,
+        category: inferCategory(ev),
+        tags: JSON.stringify(tags),
+        url: ev.url || '',
+        imageUrl: ev.image_url || '',
+      })
+      added++
+    }
+    return added
+  })
+
+  return batch(events)
+}
+
 // Run after all declarations are ready
 initDb()

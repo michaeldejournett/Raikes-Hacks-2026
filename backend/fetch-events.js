@@ -29,10 +29,23 @@ const req = client.get(url, (res) => {
     console.error(`Events API returned ${res.statusCode} — skipping`)
     process.exit(0)
   }
-  const file = fs.createWriteStream(dest)
-  res.pipe(file)
-  file.on('finish', () => {
-    file.close()
+  const contentType = res.headers['content-type'] || ''
+  if (!contentType.includes('application/json')) {
+    console.error(`Events API returned non-JSON content-type (${contentType}) — skipping`)
+    res.resume()
+    process.exit(0)
+  }
+  let body = ''
+  res.setEncoding('utf8')
+  res.on('data', (chunk) => { body += chunk })
+  res.on('end', () => {
+    try {
+      JSON.parse(body)  // validate before writing
+    } catch {
+      console.error('Events API response is not valid JSON — skipping')
+      process.exit(0)
+    }
+    fs.writeFileSync(dest, body)
     console.log(`Events written to ${dest}`)
     process.exit(0)
   })
