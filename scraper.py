@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 import argparse
+import html
 import json
+import os
 import re
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
 from datetime import datetime, date
 from typing import Iterable, List, Optional
@@ -25,6 +28,9 @@ class Event:
     end: Optional[str] = None
     location: Optional[str] = None
     description: Optional[str] = None
+    group: Optional[str] = None
+    image_url: Optional[str] = None
+    audience: Optional[List[str]] = None
     source: Optional[str] = None
 
 
@@ -51,6 +57,28 @@ def _as_list(value):
     if value is None:
         return []
     return [value]
+
+
+def extract_group_from_description(text: str) -> Optional[str]:
+    """Parse the calendar/group name embedded at the end of an RSS description.
+
+    UNL RSS descriptions end with the pattern:
+        [optional group name]Status: CONFIRMED | [type] |
+    The group name (if present) is concatenated directly before "Status:" with
+    no separator, so we grab whatever title-case text sits at the tail.
+    """
+    if not text:
+        return None
+    idx = text.find("Status:")
+    if idx == -1:
+        return None
+    before = text[:idx].rstrip()
+    match = re.search(r"([A-Z][A-Za-z\s&'-]+)$", before)
+    if match:
+        candidate = match.group(1).strip()
+        if 1 < len(candidate) < 100:
+            return candidate
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +123,7 @@ def parse_rss_events(xml_text: str, source_url: str) -> List[Event]:
         raw_link = (link_el.text or "").strip() if link_el is not None else ""
         event_url = raw_link if raw_link.startswith("http") else "https:" + raw_link
 
-        start = end = location = description = None
+        start = end = location = description = group = None
 
         if desc_el is not None and desc_el.text:
             desc_soup = BeautifulSoup(desc_el.text, "html.parser")
@@ -119,7 +147,9 @@ def parse_rss_events(xml_text: str, source_url: str) -> List[Event]:
             # strip the small metadata tags then grab remaining text as description
             for tag in desc_soup.find_all("small"):
                 tag.decompose()
-            description = clean_text(desc_soup.get_text())
+            full_text = desc_soup.get_text()
+            group = extract_group_from_description(full_text)
+            description = clean_text(full_text)
 
         events.append(
             Event(
@@ -129,6 +159,7 @@ def parse_rss_events(xml_text: str, source_url: str) -> List[Event]:
                 end=end,
                 location=location,
                 description=description,
+                group=group,
                 source=source_url,
             )
         )
@@ -354,6 +385,81 @@ def scrape_events(url: str, timeout: int = DEFAULT_TIMEOUT) -> List[Event]:
 
 
 # ---------------------------------------------------------------------------
+# Per-event enrichment — fetches each detail page for image, group, audience
+# ---------------------------------------------------------------------------
+
+def enrich_event(event: Event, timeout: int = DEFAULT_TIMEOUT) -> Event:
+    """Visit an event's detail page and fill in image_url, group, and audience."""
+    try:
+        page_html = fetch_html(event.url, timeout=timeout)
+        soup = BeautifulSoup(page_html, "html.parser")
+
+        # Image from JSON-LD ("image" field)
+        if not event.image_url:
+            for tag in soup.find_all("script", attrs={"type": "application/ld+json"}):
+                if not tag.string:
+                    continue
+                try:
+                    data = json.loads(tag.string.strip())
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(data, dict) and data.get("@type") == "Event":
+                    img_data = data.get("image")
+                    img = img_data[0] if isinstance(img_data, list) and img_data else (
+                        img_data if isinstance(img_data, str) else None
+                    )
+                    if img:
+                        img = html.unescape(img)
+                        event.image_url = "https:" + img if img.startswith("//") else img
+                    break
+
+        # Group from "This event originated in [link]" text
+        if not event.group:
+            for node in soup.find_all(string=re.compile(r"originated in", re.I)):
+                parent = node.parent
+                if parent:
+                    link = parent.find("a")
+                    if link:
+                        event.group = clean_text(link.get_text())
+                        break
+
+        # Audience from links like //events.unl.edu/audience/?audience=Public
+        audience_links = soup.find_all("a", href=re.compile(r"audience="))
+        if audience_links:
+            event.audience = [
+                clean_text(a.get_text()) for a in audience_links
+                if clean_text(a.get_text())
+            ]
+
+    except Exception:
+        pass
+    return event
+
+
+def enrich_events(
+    events: List[Event],
+    timeout: int = DEFAULT_TIMEOUT,
+    workers: int = 10,
+) -> List[Event]:
+    """Parallel-fetch each event detail page to fill in image, group, and audience."""
+    total = len(events)
+    result: List[Optional[Event]] = [None] * total
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(enrich_event, event, timeout): i
+            for i, event in enumerate(events)
+        }
+        done = 0
+        for future in as_completed(futures):
+            i = futures[future]
+            result[i] = future.result()
+            done += 1
+            if done % 50 == 0 or done == total:
+                print(f"  Enriched {done}/{total} events …")
+    return [e for e in result if e is not None]
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -382,8 +488,8 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--output",
-        default="events.json",
-        help="Output JSON file path (default: events.json)",
+        default="scraped/events.json",
+        help="Output JSON file path (default: scraped/events.json)",
     )
     parser.add_argument(
         "--timeout",
@@ -395,6 +501,18 @@ def parse_args() -> argparse.Namespace:
         "--pretty",
         action="store_true",
         help="Pretty-print JSON output.",
+    )
+    parser.add_argument(
+        "--no-enrich",
+        action="store_true",
+        help="Skip visiting individual event pages (skips image, group, and audience).",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=10,
+        metavar="N",
+        help="Number of parallel workers for enrichment (default: 10).",
     )
     return parser.parse_args()
 
@@ -428,12 +546,20 @@ def main() -> int:
         print(f"Unexpected error: {exc}")
         return 1
 
+    if not args.no_enrich:
+        print(f"Enriching {len(events)} events (image, group, audience) with {args.workers} workers …")
+        events = enrich_events(events, timeout=args.timeout, workers=args.workers)
+
     payload = {
         "scraped_at": datetime.utcnow().isoformat() + "Z",
         "source_url": source_url,
         "count": len(events),
         "events": [asdict(event) for event in events],
     }
+
+    output_dir = os.path.dirname(args.output)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
     with open(args.output, "w", encoding="utf-8") as file:
         if args.pretty:
