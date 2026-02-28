@@ -8,7 +8,7 @@ export default function Navbar({ searchQuery, onSearchChange, onLogoClick }) {
         onClick={onLogoClick}
         style={{ background: 'none', border: 'none', cursor: 'pointer' }}
       >
-        <img src={logo} alt="Curia" style={{ height: '36px' }} />
+        <img src={logo} alt="Curia" style={{ height: '80px' }} />
       </button>
 
       <div className="navbar-search">

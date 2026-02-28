@@ -45,7 +45,7 @@ body {
   top: 0;
   z-index: 100;
   padding: 0 clamp(16px, 4vw, 56px);
-  height: 72px;
+  height: 96px;
   display: flex;
   align-items: center;
   gap: 16px;
