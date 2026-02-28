@@ -167,6 +167,28 @@ export default function App() {
                 )}
               </div>
 
+              {filteredEvents.length > 0 && (
+                <div className="bottom-pagination">
+                  <button
+                    className="btn btn-outline"
+                    disabled={page === 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    ‹ Prev
+                  </button>
+                  <span className="bottom-pagination-info">
+                    {page} / {totalPages}
+                  </span>
+                  <button
+                    className="btn btn-outline"
+                    disabled={page === totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next ›
+                  </button>
+                </div>
+              )}
+
             </section>
           </div>
         )}
