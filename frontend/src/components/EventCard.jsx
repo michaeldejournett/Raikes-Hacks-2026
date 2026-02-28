@@ -3,7 +3,7 @@ import { getCategoryMeta } from '../data/events'
 function formatDate(dateStr) {
   if (!dateStr) return ''
   const d = new Date(dateStr + 'T12:00:00')
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/Chicago' })
 }
 
 function formatTime(timeStr) {
@@ -11,7 +11,7 @@ function formatTime(timeStr) {
   const [h, m] = timeStr.split(':').map(Number)
   const ampm = h >= 12 ? 'PM' : 'AM'
   const hour = h % 12 || 12
-  return `${hour}:${String(m).padStart(2, '0')} ${ampm}`
+  return `${hour}:${String(m).padStart(2, '0')} ${ampm} CT`
 }
 
 export default function EventCard({ event, groupCount, onClick }) {
@@ -21,8 +21,12 @@ export default function EventCard({ event, groupCount, onClick }) {
     <article className="event-card" onClick={onClick} role="button" tabIndex={0}
       onKeyDown={(e) => e.key === 'Enter' && onClick()}
     >
-      {/* Category color strip */}
-      <div className="event-card-banner" style={{ background: cat.color }} />
+      {/* Category image or color strip */}
+      {event.imageUrl ? (
+        <img className="event-card-image" src={event.imageUrl} alt={event.name} />
+      ) : (
+        <div className="event-card-banner" style={{ background: cat.color }} />
+      )}
 
       <div className="event-card-body">
         <div className="event-card-category">
