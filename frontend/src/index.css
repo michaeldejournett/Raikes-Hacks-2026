@@ -972,3 +972,34 @@ textarea.form-input {
   text-align: center;
   flex: 1;
 }
+
+/* ── Bottom pagination (below event grid) ────────── */
+.bottom-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.bottom-pagination .btn {
+  padding: 10px 24px;
+  font-size: 1rem;
+}
+
+.bottom-pagination-info {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 80px;
+  text-align: center;
+}
+
+/* ── Disabled button state ───────────────────────── */
+.btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}

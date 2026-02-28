@@ -115,18 +115,6 @@ export default function EventDetail({ event, onBack }) {
               </div>
             </div>
 
-            <div className="detail-meta-item">
-              <span className="detail-meta-icon">🎟️</span>
-              <div>
-                <div className="detail-meta-label">Admission</div>
-                <div
-                  className="detail-meta-value"
-                  style={{ color: event.price === 0 ? 'var(--success)' : 'var(--text)' }}
-                >
-                  {event.price === 0 ? 'Free' : `$${event.price}`}
-                </div>
-              </div>
-            </div>
           </div>
 
           <p className="detail-description">{event.description}</p>
