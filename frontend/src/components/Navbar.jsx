@@ -19,7 +19,7 @@ export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, on
         </span>
         <input
           type="search"
-          placeholder="Search events…"
+          placeholder="Search events… (Enter for AI search)"
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && onSearchSubmit?.()}

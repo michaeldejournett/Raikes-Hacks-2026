@@ -1,0 +1,36 @@
+erDiagram
+  events {
+    int id PK
+    text name
+    text description
+    text date
+    text time
+    text end_date
+    text end_time
+    text location
+    text venue
+    real price
+    text category
+    text tags
+    text url
+    text image_url
+  }
+
+  groups {
+    int id PK
+    int event_id FK
+    text name
+    text description
+    text creator
+    text created_at
+  }
+
+  group_members {
+    int id PK
+    int group_id FK
+    text member_name
+    text joined_at
+  }
+
+  events ||--o{ groups : "has"
+  groups ||--o{ group_members : "has"

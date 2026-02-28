@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { api } from './api'
 import Navbar from './components/Navbar'
 import SearchFilters from './components/SearchFilters'
@@ -13,27 +13,44 @@ const DEFAULT_FILTERS = {
   location: '',
 }
 
-const DEBOUNCE_MS = 400
-
 export default function App() {
   const [searchInput, setSearchInput]     = useState('')
-  const [searchQuery, setSearchQuery]     = useState('')
   const [filters, setFilters]             = useState(DEFAULT_FILTERS)
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [events, setEvents]               = useState([])
+  const [searchResults, setSearchResults] = useState(null)
+  const [searchMeta, setSearchMeta]       = useState(null)
   const [loading, setLoading]             = useState(true)
-  const debounceRef = useRef(null)
+  const [searching, setSearching]         = useState(false)
 
   const handleSearchChange = (value) => {
     setSearchInput(value)
-    clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => setSearchQuery(value), DEBOUNCE_MS)
+    if (!value.trim()) {
+      setSearchResults(null)
+      setSearchMeta(null)
+    }
   }
 
-  const handleSearchSubmit = () => {
-    clearTimeout(debounceRef.current)
-    setSearchQuery(searchInput)
-  }
+  const handleSearchSubmit = useCallback(async () => {
+    const q = searchInput.trim()
+    if (!q) {
+      setSearchResults(null)
+      setSearchMeta(null)
+      return
+    }
+    setSearching(true)
+    try {
+      const data = await api.searchEvents(q)
+      setSearchResults(data.results)
+      setSearchMeta({ terms: data.terms, llmUsed: data.llmUsed, count: data.count })
+    } catch (err) {
+      console.error('Search failed:', err)
+      setSearchResults(null)
+      setSearchMeta(null)
+    } finally {
+      setSearching(false)
+    }
+  }, [searchInput])
 
   const loadEvents = async () => {
     try {
@@ -48,10 +65,23 @@ export default function App() {
 
   useEffect(() => { loadEvents() }, [])
 
-  const filteredEvents = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    const results = events.filter((ev) => {
-      if (q && !ev.name.toLowerCase().includes(q) && !(ev.description || '').toLowerCase().includes(q)) return false
+  const displayEvents = useMemo(() => {
+    let source = searchResults ?? events
+
+    const q = searchInput.trim().toLowerCase()
+    if (!searchResults && q) {
+      const terms = q.match(/[a-z0-9]+/g)?.filter(w => w.length > 1) || []
+      if (terms.length) {
+        source = events.filter(ev => {
+          const haystack = [ev.name, ev.description, ev.venue, ev.category, ...(ev.tags || [])]
+            .map(s => (s || '').toLowerCase())
+            .join(' ')
+          return terms.some(t => haystack.includes(t))
+        })
+      }
+    }
+
+    const results = source.filter((ev) => {
       if (filters.category && ev.category !== filters.category) return false
       if (filters.location && ev.location !== filters.location) return false
       if (filters.dateFrom && ev.date < filters.dateFrom) return false
@@ -61,12 +91,14 @@ export default function App() {
     if (filters.priceSort === 'asc') results.sort((a, b) => a.price - b.price)
     if (filters.priceSort === 'desc') results.sort((a, b) => b.price - a.price)
     return results
-  }, [events, searchQuery, filters])
+  }, [events, searchResults, searchInput, filters])
 
   const handleBack = () => {
     setSelectedEvent(null)
     loadEvents()
   }
+
+  const isLoading = loading || searching
 
   return (
     <>
@@ -74,7 +106,7 @@ export default function App() {
         searchQuery={searchInput}
         onSearchChange={handleSearchChange}
         onSearchSubmit={handleSearchSubmit}
-        onLogoClick={() => { setSelectedEvent(null); loadEvents() }}
+        onLogoClick={() => { setSelectedEvent(null); setSearchInput(''); setSearchResults(null); setSearchMeta(null); loadEvents() }}
       />
 
       <main className="page">
@@ -91,26 +123,31 @@ export default function App() {
             <section>
               <div className="events-header">
                 <p className="events-count">
-                  {loading ? (
-                    'Loading events…'
+                  {isLoading ? (
+                    searching ? 'Searching…' : 'Loading events…'
                   ) : (
                     <>
-                      <strong>{filteredEvents.length}</strong>{' '}
-                      {filteredEvents.length === 1 ? 'event' : 'events'} found
+                      <strong>{displayEvents.length}</strong>{' '}
+                      {displayEvents.length === 1 ? 'event' : 'events'} found
+                      {searchMeta && (
+                        <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6, fontSize: '0.82rem' }}>
+                          {searchMeta.llmUsed ? '(AI-powered)' : '(keyword match)'}
+                        </span>
+                      )}
                     </>
                   )}
                 </p>
               </div>
 
               <div className="event-grid">
-                {!loading && filteredEvents.length === 0 ? (
+                {!isLoading && displayEvents.length === 0 ? (
                   <div className="no-results">
                     <div className="no-results-icon">🔍</div>
                     <p style={{ fontWeight: 600, marginBottom: 4 }}>No events match your search</p>
                     <p style={{ fontSize: '0.85rem' }}>Try adjusting your filters or search terms</p>
                   </div>
                 ) : (
-                  filteredEvents.map((ev) => (
+                  displayEvents.map((ev) => (
                     <EventCard
                       key={ev.id}
                       event={ev}
