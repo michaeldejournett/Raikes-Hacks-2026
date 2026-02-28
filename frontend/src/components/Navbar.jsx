@@ -1,3 +1,5 @@
+import logo from '../assets/logo.png'
+
 export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, onLogoClick }) {
   return (
     <nav className="navbar">
@@ -6,7 +8,7 @@ export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, on
         onClick={onLogoClick}
         style={{ background: 'none', border: 'none', cursor: 'pointer' }}
       >
-        🎉 Curia
+        <img src={logo} alt="Curia" style={{ height: '36px' }} />
       </button>
 
       <div className="navbar-search">
