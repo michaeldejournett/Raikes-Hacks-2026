@@ -2,25 +2,29 @@ import { useState } from 'react'
 import { CATEGORIES } from '../data/events'
 import DateRangePicker from './DateRangePicker'
 
-const LOCATIONS = ['All Locations', 'Omaha, NE', 'Lincoln, NE']
+const PAGE_SIZE_OPTIONS = [10, 20, 50]
 
-export default function SearchFilters({ filters, onChange, onReset }) {
+export default function SearchFilters({ filters, onChange, onReset, pageSize, onPageSizeChange, page, totalPages, totalCount, onPageChange }) {
   const [open, setOpen] = useState(true)
 
   const set = (key, value) => onChange({ ...filters, [key]: value })
 
+  const toggleCategory = (id) => {
+    const current = filters.category
+    set('category', current.includes(id)
+      ? current.filter((c) => c !== id)
+      : [...current, id]
+    )
+  }
+
   const hasActiveFilters =
-    filters.category ||
-    filters.location ||
+    filters.category.length ||
     filters.dateFrom ||
-    filters.dateTo ||
-    filters.priceSort
+    filters.dateTo
 
   const activeCount = [
-    filters.category,
-    filters.location,
+    filters.category.length ? 'cat' : '',
     filters.dateFrom || filters.dateTo ? 'date' : '',
-    filters.priceSort,
   ].filter(Boolean).length
 
   return (
@@ -43,15 +47,15 @@ export default function SearchFilters({ filters, onChange, onReset }) {
           )}
         </div>
 
-        {/* Category */}
+        {/* Category — multi-select */}
         <div className="filter-group">
           <span className="filter-label">Category</span>
           <div className="category-pills">
             {CATEGORIES.map((cat) => (
               <button
                 key={cat.id}
-                className={`category-pill ${filters.category === cat.id ? 'active' : ''}`}
-                onClick={() => set('category', filters.category === cat.id ? '' : cat.id)}
+                className={`category-pill ${filters.category.includes(cat.id) ? 'active' : ''}`}
+                onClick={() => toggleCategory(cat.id)}
               >
                 {cat.emoji} {cat.label}
               </button>
@@ -69,36 +73,50 @@ export default function SearchFilters({ filters, onChange, onReset }) {
           />
         </div>
 
-        {/* Price sort */}
-        <div className="filter-group">
-          <label className="filter-label" htmlFor="filter-price-sort">Sort by Price</label>
-          <select
-            id="filter-price-sort"
-            className="filter-input"
-            value={filters.priceSort}
-            onChange={(e) => set('priceSort', e.target.value)}
-          >
-            <option value="">No preference</option>
-            <option value="asc">Least expensive first</option>
-            <option value="desc">Most expensive first</option>
-          </select>
-        </div>
+        {/* Page size + pagination */}
+        <div className="filter-group" style={{ marginBottom: 0 }}>
+          <div className="page-size-selector" style={{ marginBottom: 10 }}>
+            <label htmlFor="sidebar-page-size" style={{ fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>
+              Show
+            </label>
+            <select
+              id="sidebar-page-size"
+              value={pageSize}
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+            >
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+            <span>per page</span>
+          </div>
 
-        {/* Location */}
-        <div className="filter-group">
-          <label className="filter-label" htmlFor="filter-location">Location</label>
-          <select
-            id="filter-location"
-            className="filter-input"
-            value={filters.location}
-            onChange={(e) => set('location', e.target.value === 'All Locations' ? '' : e.target.value)}
-          >
-            {LOCATIONS.map((loc) => (
-              <option key={loc} value={loc === 'All Locations' ? '' : loc}>
-                {loc}
-              </option>
-            ))}
-          </select>
+          {totalCount > 0 && (
+            <>
+              <div className="sidebar-range">
+                Events {((page - 1) * pageSize) + 1}–{Math.min(page * pageSize, totalCount)} of {totalCount.toLocaleString()}
+              </div>
+              <div className="sidebar-pagination">
+                <button
+                  className="btn btn-outline"
+                  disabled={page === 1}
+                  onClick={() => onPageChange((p) => p - 1)}
+                >
+                  ‹ Prev
+                </button>
+                <span className="sidebar-page-info">
+                  {page} / {totalPages}
+                </span>
+                <button
+                  className="btn btn-outline"
+                  disabled={page === totalPages}
+                  onClick={() => onPageChange((p) => p + 1)}
+                >
+                  Next ›
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </aside>
     </>
