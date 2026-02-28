@@ -1,4 +1,3 @@
-import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
@@ -17,7 +16,6 @@ app.use(express.json())
 app.use('/api/events', eventsRouter)
 app.use('/api/groups', groupsRouter)
 
-// In production, serve the built frontend
 if (process.env.NODE_ENV === 'production') {
   const frontendDist = path.join(__dirname, '..', 'frontend', 'dist')
   app.use(express.static(frontendDist))
@@ -26,11 +24,7 @@ if (process.env.NODE_ENV === 'production') {
   })
 }
 
-async function start() {
-  await initDb()
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`)
-  })
-}
-
-start()
+initDb()
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`)
+})

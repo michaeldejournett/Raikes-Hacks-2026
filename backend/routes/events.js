@@ -1,21 +1,25 @@
 import { Router } from 'express'
-import { query } from '../db.js'
+import db from '../db.js'
 
 const router = Router()
 
-router.get('/', async (_req, res) => {
+const listEvents = db.prepare(`
+  SELECT e.*,
+    (SELECT COUNT(*) FROM groups g WHERE g.event_id = e.id) AS groupCount
+  FROM events e
+  ORDER BY e.date ASC
+`)
+
+const getEvent = db.prepare(`
+  SELECT e.*,
+    (SELECT COUNT(*) FROM groups g WHERE g.event_id = e.id) AS groupCount
+  FROM events e
+  WHERE e.id = ?
+`)
+
+router.get('/', (_req, res) => {
   try {
-    const { rows } = await query(`
-      SELECT e.*,
-        COALESCE(g.group_count, 0)::int AS group_count
-      FROM events e
-      LEFT JOIN (
-        SELECT event_id, COUNT(*) AS group_count
-        FROM groups
-        GROUP BY event_id
-      ) g ON g.event_id = e.id
-      ORDER BY e.date ASC
-    `)
+    const rows = listEvents.all()
     res.json(rows.map(formatEvent))
   } catch (err) {
     console.error('GET /api/events', err)
@@ -23,22 +27,11 @@ router.get('/', async (_req, res) => {
   }
 })
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', (req, res) => {
   try {
-    const { rows } = await query(`
-      SELECT e.*,
-        COALESCE(g.group_count, 0)::int AS group_count
-      FROM events e
-      LEFT JOIN (
-        SELECT event_id, COUNT(*) AS group_count
-        FROM groups
-        GROUP BY event_id
-      ) g ON g.event_id = e.id
-      WHERE e.id = $1
-    `, [req.params.id])
-
-    if (rows.length === 0) return res.status(404).json({ error: 'Event not found' })
-    res.json(formatEvent(rows[0]))
+    const row = getEvent.get(req.params.id)
+    if (!row) return res.status(404).json({ error: 'Event not found' })
+    res.json(formatEvent(row))
   } catch (err) {
     console.error('GET /api/events/:id', err)
     res.status(500).json({ error: 'Failed to fetch event' })
@@ -56,10 +49,10 @@ function formatEvent(row) {
     endTime: row.end_time,
     location: row.location,
     venue: row.venue,
-    price: parseFloat(row.price),
+    price: row.price,
     category: row.category,
-    tags: row.tags || [],
-    groupCount: row.group_count,
+    tags: JSON.parse(row.tags || '[]'),
+    groupCount: row.groupCount,
   }
 }
 

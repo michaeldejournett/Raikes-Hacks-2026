@@ -1,63 +1,75 @@
-import pg from 'pg'
+import Database from 'better-sqlite3'
+import path from 'path'
+import { fileURLToPath } from 'url'
 
-// Return dates as ISO strings instead of JS Date objects (avoids timezone shifts)
-pg.types.setTypeParser(1082, (val) => val)
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const dbPath = path.join(__dirname, 'gather.db')
 
-const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-})
+const db = new Database(dbPath)
+db.pragma('journal_mode = WAL')
+db.pragma('foreign_keys = ON')
 
-export const query = (text, params) => pool.query(text, params)
+export default db
 
-export async function initDb() {
-  await query(`
+export function initDb() {
+  db.exec(`
     CREATE TABLE IF NOT EXISTS events (
-      id SERIAL PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       description TEXT,
-      date DATE NOT NULL,
+      date TEXT NOT NULL,
       time TEXT,
-      end_date DATE,
+      end_date TEXT,
       end_time TEXT,
       location TEXT,
       venue TEXT,
-      price NUMERIC DEFAULT 0,
+      price REAL DEFAULT 0,
       category TEXT,
-      tags TEXT[]
+      tags TEXT DEFAULT '[]'
     )
   `)
 
-  await query(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS groups (
-      id SERIAL PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT DEFAULT '',
       creator TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      created_at TEXT DEFAULT (datetime('now'))
     )
   `)
 
-  await query(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS group_members (
-      id SERIAL PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
       member_name TEXT NOT NULL,
-      joined_at TIMESTAMPTZ DEFAULT NOW(),
+      joined_at TEXT DEFAULT (datetime('now')),
       UNIQUE(group_id, member_name)
     )
   `)
 
-  const { rows } = await query('SELECT COUNT(*)::int AS count FROM events')
-  if (rows[0].count === 0) {
-    await seedEvents()
+  const count = db.prepare('SELECT COUNT(*) AS count FROM events').get().count
+  if (count === 0) {
+    seedEvents()
     console.log('Seeded events table')
   }
 }
 
-async function seedEvents() {
-  const events = [
+function seedEvents() {
+  const insert = db.prepare(`
+    INSERT INTO events (name, description, date, time, end_date, end_time, location, venue, price, category, tags)
+    VALUES (@name, @description, @date, @time, @endDate, @endTime, @location, @venue, @price, @category, @tags)
+  `)
+
+  const seed = db.transaction((events) => {
+    for (const ev of events) {
+      insert.run({ ...ev, tags: JSON.stringify(ev.tags) })
+    }
+  })
+
+  seed([
     {
       name: 'Omaha Tech Summit 2026',
       description: "Join Omaha's premier technology conference featuring keynotes from industry leaders, hands-on workshops, and networking opportunities. Topics include AI/ML, cloud infrastructure, web development, and startup culture. Whether you're a seasoned engineer or just starting out, there's something for everyone.",
@@ -138,13 +150,5 @@ async function seedEvents() {
       price: 45, category: 'food',
       tags: ['beer', 'craft beer', '21+', 'festival', 'live music'],
     },
-  ]
-
-  for (const ev of events) {
-    await query(
-      `INSERT INTO events (name, description, date, time, end_date, end_time, location, venue, price, category, tags)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [ev.name, ev.description, ev.date, ev.time, ev.endDate, ev.endTime, ev.location, ev.venue, ev.price, ev.category, ev.tags]
-    )
-  }
+  ])
 }
