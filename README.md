@@ -82,3 +82,122 @@ docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build
    - **Start command:** `cd backend && node index.js`
    - **Environment variable:** `NODE_ENV` = `production`
 3. Deploy — the backend serves both the API and the built frontend from one URL
+
+## Scraper API Reference
+
+The API is available at **http://localhost:8080** once the containers are up.
+
+### API Endpoints
+
+#### `GET /health`
+Returns service status and scrape state.
+```json
+{
+  "status": "ok",
+  "events_loaded": 842,
+  "last_scraped": "2026-02-28T20:00:00+00:00",
+  "scrape_running": false,
+  "scrape_interval_seconds": 3600
+}
+```
+
+#### `GET /events`
+Returns all cached events in the standard JSON format.
+```bash
+curl http://localhost:8080/events
+```
+
+```json
+{
+  "scraped_at": "2026-02-28T20:00:00+00:00",
+  "count": 842,
+  "events": [
+    {
+      "title": "Flatland Climbing Competition",
+      "url": "https://events.unl.edu/2026/02/28/195255/",
+      "start": "2026-02-28T09:00:00-06:00",
+      "end": "2026-02-28T16:00:00-06:00",
+      "location": "Campus Recreation Center",
+      "description": "Connect with climbers from around the Mid-West...",
+      "group": "Campus Recreation",
+      "image_url": "https://...",
+      "audience": ["Recreation", "Sports"],
+      "source": "https://events.unl.edu/upcoming/?format=rss&limit=-1"
+    }
+  ]
+}
+```
+
+#### `GET /search`
+Search events with a natural-language query.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `q` | string | required | Search query (e.g. `"free food this weekend"`) |
+| `top` | int | `10` | Max results (1–100) |
+| `model` | string | `llama3.2:1b` | Ollama model for keyword expansion |
+| `no_llm` | bool | `false` | Skip Ollama, use raw keywords only |
+
+```bash
+curl "http://localhost:8080/search?q=free+food+this+weekend&top=5"
+```
+
+```json
+{
+  "query": "free food this weekend",
+  "terms": ["free", "food", "lunch", "snacks"],
+  "llm_used": true,
+  "date_range": {"start": "2026-03-01", "end": "2026-03-02"},
+  "total_searched": 127,
+  "count": 3,
+  "results": [
+    {
+      "score": 12,
+      "title": "Free Pizza — Engineering Open House",
+      "url": "https://events.unl.edu/...",
+      "start": "2026-03-01T12:00:00",
+      "location": "Scott Engineering Center",
+      "group": "College of Engineering",
+      "image_url": "https://..."
+    }
+  ]
+}
+```
+
+#### `POST /reload`
+Trigger an immediate re-scrape without waiting for the next scheduled interval.
+```bash
+curl -X POST http://localhost:8080/reload
+```
+Returns `409` if a scrape is already running.
+
+#### `GET /docs`
+Interactive Swagger UI — try all endpoints in the browser.
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCRAPE_INTERVAL` | `3600` | Seconds between re-scrapes. |
+| `SCRAPE_WORKERS` | `10` | Parallel workers for per-event detail enrichment. |
+| `OLLAMA_MODEL` | `llama3.2:1b` | Ollama model used for keyword expansion. |
+| `OLLAMA_URL` | `http://ollama:11434/api/generate` | Ollama API endpoint. |
+| `EVENTS_FILE` | `scraped/events.json` | Path to the cached events JSON inside the container. |
+
+### Running Locally (without Docker)
+
+Requires Python 3.10+ and [Ollama](https://ollama.com) running locally.
+
+```bash
+# Install dependencies
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r api/requirements.txt
+
+# Populate the cache with a one-time scrape
+python api/scraper.py
+
+# Start the API (Ollama optional — search works without it)
+uvicorn api.api:app --reload
+```
+
+The API will be at **http://localhost:8000**.

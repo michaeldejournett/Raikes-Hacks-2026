@@ -128,6 +128,16 @@ def health():
     }
 
 
+@app.get("/events")
+def get_events():
+    """Return all cached events in the standard events.json format."""
+    return {
+        "scraped_at": _last_scraped.isoformat() if _last_scraped else None,
+        "count": len(_events),
+        "events": _events,
+    }
+
+
 @app.post("/reload")
 async def reload_events():
     """Trigger an immediate re-scrape in the background."""
