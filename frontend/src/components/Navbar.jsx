@@ -6,7 +6,7 @@ export default function Navbar({ searchQuery, onSearchChange, onLogoClick }) {
         onClick={onLogoClick}
         style={{ background: 'none', border: 'none', cursor: 'pointer' }}
       >
-        🎉 Gather
+        🎉 Curia
       </button>
 
       <div className="navbar-search">

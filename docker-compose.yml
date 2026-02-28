@@ -1,0 +1,50 @@
+services:
+
+  # ── Ollama inference server ───────────────────────────────────────────────
+  # GPU support is handled by overlay files:
+  #   NVIDIA:  docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up
+  #   AMD ROCm: docker compose -f docker-compose.yml -f docker-compose.amd.yml up
+  #   Mac / CPU-only: docker compose up  (this file alone)
+  ollama:
+    image: ollama/ollama
+    volumes:
+      - ollama_data:/root/.ollama   # model weights persist across restarts
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  # ── One-shot: pull the model into the shared volume ───────────────────────
+  ollama-pull:
+    image: ollama/ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "llama3.2:1b"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  # ── FastAPI search + scraper service ─────────────────────────────────────
+  api:
+    build: ./api
+    ports:
+      - "8080:8000"
+    volumes:
+      - ./scraped:/app/scraped     # scraped data persists on the host
+    environment:
+      OLLAMA_URL: http://ollama:11434/api/generate
+      OLLAMA_MODEL: llama3.2:1b
+      SCRAPE_INTERVAL: "3600"      # re-scrape every hour; set to 0 to disable
+      SCRAPE_WORKERS: "10"
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+
+volumes:
+  ollama_data:

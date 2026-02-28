@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { CATEGORIES } from '../data/events'
+import DateRangePicker from './DateRangePicker'
 
 const LOCATIONS = ['All Locations', 'Omaha, NE', 'Lincoln, NE']
 
@@ -11,21 +12,20 @@ export default function SearchFilters({ filters, onChange, onReset }) {
   const hasActiveFilters =
     filters.category ||
     filters.location ||
-    filters.date ||
-    filters.minPrice !== '' ||
-    filters.maxPrice !== ''
+    filters.dateFrom ||
+    filters.dateTo ||
+    filters.priceSort
 
   const activeCount = [
     filters.category,
     filters.location,
-    filters.date,
-    filters.minPrice !== '' ? 'p' : '',
-    filters.maxPrice !== '' ? 'p' : '',
+    filters.dateFrom || filters.dateTo ? 'date' : '',
+    filters.priceSort,
   ].filter(Boolean).length
 
   return (
     <>
-      {/* Mobile toggle — only visible via CSS on small screens */}
+      {/* Mobile toggle */}
       <button className="filter-toggle-btn" onClick={() => setOpen((o) => !o)}>
         <span>
           Filters {activeCount > 0 && <span style={{ color: 'var(--primary)' }}>({activeCount})</span>}
@@ -59,39 +59,29 @@ export default function SearchFilters({ filters, onChange, onReset }) {
           </div>
         </div>
 
-        {/* Date */}
+        {/* Date range */}
         <div className="filter-group">
-          <label className="filter-label" htmlFor="filter-date">Date (from)</label>
-          <input
-            id="filter-date"
-            type="date"
-            className="filter-input"
-            value={filters.date}
-            onChange={(e) => set('date', e.target.value)}
+          <span className="filter-label">Date Range</span>
+          <DateRangePicker
+            dateFrom={filters.dateFrom}
+            dateTo={filters.dateTo}
+            onChange={({ dateFrom, dateTo }) => onChange({ ...filters, dateFrom, dateTo })}
           />
         </div>
 
-        {/* Price */}
+        {/* Price sort */}
         <div className="filter-group">
-          <span className="filter-label">Price Range ($)</span>
-          <div className="price-range-row">
-            <input
-              type="number"
-              className="filter-input"
-              placeholder="Min"
-              min="0"
-              value={filters.minPrice}
-              onChange={(e) => set('minPrice', e.target.value)}
-            />
-            <input
-              type="number"
-              className="filter-input"
-              placeholder="Max"
-              min="0"
-              value={filters.maxPrice}
-              onChange={(e) => set('maxPrice', e.target.value)}
-            />
-          </div>
+          <label className="filter-label" htmlFor="filter-price-sort">Sort by Price</label>
+          <select
+            id="filter-price-sort"
+            className="filter-input"
+            value={filters.priceSort}
+            onChange={(e) => set('priceSort', e.target.value)}
+          >
+            <option value="">No preference</option>
+            <option value="asc">Least expensive first</option>
+            <option value="desc">Most expensive first</option>
+          </select>
         </div>
 
         {/* Location */}
