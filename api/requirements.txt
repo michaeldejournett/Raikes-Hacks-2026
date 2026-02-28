@@ -1,0 +1,5 @@
+beautifulsoup4>=4.12.3
+requests>=2.32.3
+dateparser>=1.2.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
