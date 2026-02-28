@@ -46,25 +46,28 @@ Open `http://localhost:5173` — the frontend proxies API calls to the backend a
 | POST | `/api/groups` | Create a group |
 | POST | `/api/groups/:id/join` | Join a group |
 
-## Scraping Real Events
+## Running Everything via Docker
 
-To populate the app with real UNL events, run the scraper via Docker:
+`docker compose up --build` starts all three services together:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| `backend` | `3001` | Express + SQLite (events & groups API) |
+| `api` | `8080` | FastAPI scraper + LLM search |
+| `ollama` | — | Local LLM inference (internal only) |
 
 ```bash
+# Mac / CPU-only / Windows
 docker compose up --build
-```
 
-This scrapes events.unl.edu and writes to `scraped/events.json`. Next time the Express backend starts with a fresh database, it will load these events automatically.
-
-For GPU acceleration:
-
-```bash
-# NVIDIA GPU
+# Linux + NVIDIA GPU
 docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up --build
 
-# AMD GPU (ROCm, Linux only)
+# Linux + AMD GPU (ROCm)
 docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build
 ```
+
+On first run the `api` service scrapes events.unl.edu and writes to `scraped/events.json`. The `backend` service loads those events into SQLite automatically. The SQLite database persists across restarts via the `backend_db` Docker volume.
 
 ## Deploying to Railway (Free)
 
