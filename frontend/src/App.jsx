@@ -69,9 +69,11 @@ export default function App() {
         fastapiUrl: data._fastapiUrl || null,
         fastapiError: data._fastapiError || null,
       })
-      // Reflect AI-applied date filter in the sidebar date picker
+      // Reflect AI-applied date filter in the sidebar date picker; clear it for keyword-only searches
       if (data.date_range) {
         setFilters(f => ({ ...f, dateFrom: data.date_range.start, dateTo: data.date_range.end }))
+      } else {
+        setFilters(f => ({ ...f, dateFrom: '', dateTo: '' }))
       }
     } catch (err) {
       console.error('Search failed:', err)
@@ -145,9 +147,9 @@ export default function App() {
 
   const filteredEvents = useMemo(() => {
     const source = searchResults ?? events
-    // When showing search results, use searchMeta.dateRange as authoritative (from AI) so we don't rely on filters state
-    const dateFrom = searchResults && searchMeta?.dateRange ? searchMeta.dateRange.start : filters.dateFrom
-    const dateTo = searchResults && searchMeta?.dateRange ? searchMeta.dateRange.end : filters.dateTo
+    // In search mode, only apply date/time when AI explicitly extracted them — never bleed sidebar dates into keyword search
+    const dateFrom = searchResults ? (searchMeta?.dateRange?.start || '') : filters.dateFrom
+    const dateTo   = searchResults ? (searchMeta?.dateRange?.end   || '') : filters.dateTo
     const timeFrom = searchResults ? (searchMeta?.timeRange?.start || null) : null
     const timeTo   = searchResults ? (searchMeta?.timeRange?.end   || null) : null
 
