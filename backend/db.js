@@ -82,6 +82,20 @@ function initDb() {
     )
   `)
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      type TEXT NOT NULL,
+      group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+      actor_name TEXT NOT NULL,
+      group_name TEXT NOT NULL,
+      body TEXT DEFAULT '',
+      read INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `)
+
   // Migrate: add columns that may not exist in older databases
   for (const col of ['url TEXT', 'image_url TEXT']) {
     try { db.exec(`ALTER TABLE events ADD COLUMN ${col}`) } catch { /* already exists */ }

@@ -40,7 +40,11 @@ export default function EventDetail({ event, onBack, user }) {
     }
   }, [event.id])
 
-  useEffect(() => { loadGroups() }, [loadGroups])
+  useEffect(() => {
+    loadGroups()
+    const interval = setInterval(loadGroups, 5000)
+    return () => clearInterval(interval)
+  }, [loadGroups])
 
   const userOwnsAGroup = groups.some(g => g.isOwner)
 
@@ -320,9 +324,7 @@ export default function EventDetail({ event, onBack, user }) {
                       <div key={i} className="member-chip-row">
                         <span className="member-chip">{m.name}</span>
                         {(group.hasJoined || group.isOwner) && m.email && (
-                          <span className="member-contact">
-                            <a href={`mailto:${m.email}`} title={m.email}>✉️</a>
-                          </span>
+                          <a className="member-email" href={`mailto:${m.email}`}>{m.email}</a>
                         )}
                       </div>
                     ))}
@@ -340,18 +342,20 @@ export default function EventDetail({ event, onBack, user }) {
                     >
                       {copiedId === group.id ? '✓ Copied!' : '🔗 Share'}
                     </button>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => toggleChat(group.id)}
-                    >
-                      💬 {expandedChat === group.id ? 'Hide Chat' : 'Chat'}
-                    </button>
+                    {(group.hasJoined || group.isOwner) && (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => toggleChat(group.id)}
+                      >
+                        💬 {expandedChat === group.id ? 'Hide Chat' : 'Chat'}
+                      </button>
+                    )}
                   </div>
 
-                  {expandedChat === group.id && (
+                  {expandedChat === group.id && (group.hasJoined || group.isOwner) && (
                     <GroupMessageBoard
                       groupId={group.id}
-                      userName={(group.hasJoined || group.isOwner) ? user?.name : null}
+                      userName={user?.name}
                     />
                   )}
                 </div>

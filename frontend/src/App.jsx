@@ -101,6 +101,13 @@ export default function App() {
     loadEvents()
   }
 
+  const handleNavigateToEvent = async (eventId) => {
+    try {
+      const ev = await api.getEvent(Number(eventId))
+      if (ev) setSelectedEvent(ev)
+    } catch {}
+  }
+
   const isLoading = loading || searching
 
   return (
@@ -112,6 +119,7 @@ export default function App() {
         onLogoClick={() => { setSelectedEvent(null); setSearchInput(''); setSearchResults(null); setSearchMeta(null); loadEvents() }}
         user={user}
         onUserChange={setUser}
+        onNavigateToEvent={handleNavigateToEvent}
       />
 
       <main className="page">

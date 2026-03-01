@@ -21,6 +21,7 @@ export const api = {
     request(`/api/events/search?${new URLSearchParams({ q, top })}`),
 
   // Groups
+  getMyGroups: () => request('/api/groups/mine'),
   getGroups: (eventId) =>
     request(`/api/groups?${new URLSearchParams({ eventId })}`),
   getGroupById: (groupId) =>
@@ -39,6 +40,11 @@ export const api = {
     request(`/api/groups/${groupId}/messages`),
   postMessage: (groupId, body) =>
     request(`/api/groups/${groupId}/messages`, { method: 'POST', body: JSON.stringify({ body }) }),
+
+  // Notifications
+  getNotifications: () => request('/api/notifications'),
+  markNotificationsRead: (id) =>
+    request('/api/notifications/read', { method: 'POST', body: JSON.stringify(id ? { id } : {}) }),
 
   // Auth
   getMe: () => request('/api/auth/me'),

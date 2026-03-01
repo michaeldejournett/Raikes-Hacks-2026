@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import db from '../db.js'
+import { notifyGroupMembers } from './notifications.js'
 
 const router = Router()
 
@@ -70,6 +71,28 @@ function attachMembers(group, currentUserId = null) {
   }
 }
 
+const listMyGroups = db.prepare(`
+  SELECT g.*, e.name AS event_name
+  FROM groups g
+  JOIN group_members gm ON gm.group_id = g.id
+  JOIN events e ON e.id = g.event_id
+  WHERE gm.user_id = ?
+  ORDER BY gm.joined_at DESC
+`)
+
+router.get('/mine', requireAuth, (req, res) => {
+  try {
+    const rows = listMyGroups.all(req.user.id)
+    res.json(rows.map(g => ({
+      ...attachMembers(g, req.user.id),
+      eventName: g.event_name,
+    })))
+  } catch (err) {
+    console.error('GET /api/groups/mine', err)
+    res.status(500).json({ error: 'Failed to fetch your groups' })
+  }
+})
+
 router.get('/', (req, res) => {
   try {
     const { eventId } = req.query
@@ -132,6 +155,7 @@ router.post('/:id/join', requireAuth, (req, res) => {
     }
 
     insertMember.run(group.id, req.user.name, req.user.id)
+    notifyGroupMembers(group.id, req.user.id, 'join', req.user.name, group.name)
     res.json(attachMembers(getGroup.get(group.id), req.user.id))
   } catch (err) {
     console.error('POST /api/groups/:id/join', err)
@@ -162,6 +186,7 @@ router.post('/:id/leave', requireAuth, (req, res) => {
     if (group.creator_id === req.user.id) return res.status(403).json({ error: 'Owners must delete the group instead of leaving' })
 
     deleteMember.run(group.id, req.user.id)
+    notifyGroupMembers(group.id, req.user.id, 'leave', req.user.name, group.name)
 
     const remaining = countMembers.get(group.id).count
     if (remaining === 0) deleteGroup.run(group.id)
@@ -216,6 +241,7 @@ router.post('/:id/messages', requireAuth, (req, res) => {
     if (!group) return res.status(404).json({ error: 'Group not found' })
 
     insertMessage.run(group.id, req.user.name, body.trim())
+    notifyGroupMembers(group.id, req.user.id, 'message', req.user.name, group.name, body.trim().slice(0, 100))
 
     const rows = listMessages.all(group.id)
     res.status(201).json(rows.map(r => ({

@@ -1,10 +1,12 @@
 import logo from '../assets/logo.png'
 import { api } from '../api'
+import NotificationBell from './NotificationBell'
+import MyGroupsMenu from './MyGroupsMenu'
 
-export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, onLogoClick, user, onUserChange }) {
+export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, onLogoClick, user, onUserChange, onNavigateToEvent }) {
   const handleLogout = async () => {
     await api.logout()
-    onUserChange(null)
+    window.location.reload()
   }
 
   return (
@@ -33,12 +35,15 @@ export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, on
         />
       </div>
 
+      <span className="navbar-tagline">We already know where you're going.</span>
+
       <div className="navbar-actions">
-        <span className="navbar-tagline">We already know where you're going.</span>
+        {user && <MyGroupsMenu onNavigateToEvent={onNavigateToEvent} />}
+        {user && <NotificationBell onNavigateToEvent={onNavigateToEvent} />}
         {user ? (
           <div className="navbar-user">
             {user.picture && (
-              <img src={user.picture} alt={user.name} className="navbar-avatar" />
+              <img src={user.picture} alt={user.name} className="navbar-avatar" referrerPolicy="no-referrer" />
             )}
             <span className="navbar-username">{user.name}</span>
             <button className="btn btn-ghost btn-sm" onClick={handleLogout}>

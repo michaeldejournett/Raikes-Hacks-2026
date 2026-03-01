@@ -6,6 +6,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import eventsRouter from './routes/events.js'
 import groupsRouter from './routes/groups.js'
+import notificationsRouter from './routes/notifications.js'
 import authRouter, { passport } from './routes/auth.js'
 import { insertNewEvents } from './db.js'
 
@@ -34,6 +35,7 @@ app.use(passport.session())
 app.use('/api/auth', authRouter)
 app.use('/api/events', eventsRouter)
 app.use('/api/groups', groupsRouter)
+app.use('/api/notifications', notificationsRouter)
 
 if (process.env.NODE_ENV === 'production') {
   const frontendDist = path.join(__dirname, '..', 'frontend', 'dist')

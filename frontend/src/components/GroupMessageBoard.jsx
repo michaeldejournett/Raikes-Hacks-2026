@@ -16,7 +16,11 @@ export default function GroupMessageBoard({ groupId, userName }) {
     }
   }
 
-  useEffect(() => { load() }, [groupId])
+  useEffect(() => {
+    load()
+    const interval = setInterval(load, 3000)
+    return () => clearInterval(interval)
+  }, [groupId])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
