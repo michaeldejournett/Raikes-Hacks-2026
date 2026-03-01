@@ -1,9 +1,30 @@
 import { useState } from 'react'
 
-const VIBE_OPTIONS = [
-  'chill', 'hype', 'first-timers welcome', '21+',
-  'competitive', 'casual', 'study group', 'pregame',
-]
+const VIBE_CATEGORIES = {
+  'Energy': [
+    'chill', 'hype', 'lowkey', 'wild', 'cozy', 'intense',
+  ],
+  'Crowd': [
+    'first-timers welcome', 'regulars only', 'strangers welcome',
+    'small group', 'big group', 'solo-friendly',
+  ],
+  'Social': [
+    'pregame', 'afterparty', 'dinner first', 'grab drinks',
+    'carpool', 'tailgate',
+  ],
+  'Focus': [
+    'study group', 'networking', 'just vibes', 'deep talks',
+    'creative collab', 'competitive',
+  ],
+  'Logistics': [
+    '21+', 'all ages', 'free entry', 'bringing food',
+    'outdoor', 'BYOB', 'sober-friendly',
+  ],
+  'Misc': [
+    'matching outfits', 'dog-friendly', 'photos', 'late night',
+    'morning people', 'budget-friendly', 'VIP',
+  ],
+}
 
 export default function GroupModal({ mode, group, eventName, userName, error, onConfirm, onClose }) {
   const isCreate = mode === 'create'
@@ -104,16 +125,23 @@ export default function GroupModal({ mode, group, eventName, userName, error, on
 
               <div className="form-group">
                 <label className="form-label">Vibe Tags</label>
-                <div className="vibe-picker">
-                  {VIBE_OPTIONS.map(tag => (
-                    <button
-                      key={tag}
-                      type="button"
-                      className={`vibe-chip ${vibeTags.includes(tag) ? 'active' : ''}`}
-                      onClick={() => toggleVibe(tag)}
-                    >
-                      {tag}
-                    </button>
+                <div className="vibe-picker-categorized">
+                  {Object.entries(VIBE_CATEGORIES).map(([category, tags]) => (
+                    <div key={category} className="vibe-category">
+                      <span className="vibe-category-label">{category}</span>
+                      <div className="vibe-picker">
+                        {tags.map(tag => (
+                          <button
+                            key={tag}
+                            type="button"
+                            className={`vibe-chip ${vibeTags.includes(tag) ? 'active' : ''}`}
+                            onClick={() => toggleVibe(tag)}
+                          >
+                            {tag}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>

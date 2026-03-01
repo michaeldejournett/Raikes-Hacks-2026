@@ -49,6 +49,11 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
+  transition: box-shadow 0.2s ease;
+}
+
+.navbar.scrolled {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
 }
 
 .navbar-brand {
@@ -60,6 +65,15 @@ body {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+.navbar-brand:hover {
+  transform: scale(1.03);
+}
+
+.navbar-brand:active {
+  transform: scale(0.98);
 }
 
 .navbar-search {
@@ -69,7 +83,7 @@ body {
 }
 
 .navbar-search input {
-  width: 100%;
+  width: 80%;
   padding: 10px 16px 10px 42px;
   border: 1.5px solid var(--border);
   border-radius: 999px;
@@ -77,12 +91,13 @@ body {
   background: var(--bg);
   color: var(--text);
   outline: none;
-  transition: border-color var(--transition), box-shadow var(--transition);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
 .navbar-search input:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(99,102,241,.15);
+  transform: scale(1.01);
 }
 
 .navbar-search-icon {
@@ -96,17 +111,30 @@ body {
 }
 
 .navbar-tagline {
-  font-size: 1.1rem;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1rem;
   color: var(--text-muted);
   white-space: nowrap;
-  margin-left: 8px;
-  margin-right: auto;
+  pointer-events: none;
+  animation: tagline-fade 0.6s ease-out;
+}
+
+.navbar-tagline-hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+@keyframes tagline-fade {
+  from { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 .navbar-actions {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   margin-left: auto;
 }
 
@@ -122,12 +150,52 @@ body {
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid var(--border);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .navbar-username {
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--text);
+}
+
+.navbar-divider {
+  width: 1px;
+  height: 28px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.navbar-signout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 1.5px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.navbar-signout-btn:hover {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: var(--danger);
+  color: var(--danger);
+  transform: scale(1.02);
+}
+
+.navbar-signout-btn:active {
+  transform: scale(0.98);
+}
+
+.navbar-user:hover .navbar-avatar {
+  transform: scale(1.05);
+  box-shadow: 0 0 0 2px var(--primary);
 }
 
 .groups-auth-prompt {
@@ -825,6 +893,29 @@ body {
   font-weight: 600;
 }
 
+.vibe-picker-categorized {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.vibe-category {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.vibe-category-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
 .vibe-picker {
   display: flex;
   flex-wrap: wrap;
@@ -1261,6 +1352,23 @@ textarea.form-input {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   overflow: hidden;
+  position: relative;
+}
+
+.msg-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: rgba(99, 102, 241, 0.08);
+  border: 2px dashed var(--primary);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--primary);
+  pointer-events: none;
 }
 
 .msg-list {
@@ -1327,8 +1435,80 @@ textarea.form-input {
   border-color: transparent;
 }
 
+.msg-image-link {
+  display: block;
+  max-width: 260px;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.msg-image {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.msg-image:hover {
+  opacity: 0.85;
+}
+
+.msg-preview {
+  position: relative;
+  display: inline-block;
+  padding: 8px 12px 0;
+}
+
+.msg-preview-img {
+  max-height: 120px;
+  max-width: 200px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
+.msg-preview-cancel {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 0.72rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.msg-img-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.msg-img-btn:hover {
+  background: var(--bg-hover, rgba(0,0,0,0.06));
+  color: var(--primary);
+}
+
 .msg-input-row {
   display: flex;
+  align-items: center;
   gap: 8px;
   padding: 10px 12px;
   border-top: 1px solid var(--border);
@@ -1370,7 +1550,7 @@ textarea.form-input {
   padding: 8px;
   border-radius: 50%;
   color: var(--text);
-  transition: background 0.15s;
+  transition: background 0.2s ease, transform 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1379,10 +1559,20 @@ textarea.form-input {
 .notif-bell-btn svg {
   width: 35px;
   height: 35px;
+  transition: transform 0.2s ease;
 }
 
 .notif-bell-btn:hover {
   background: var(--bg-hover, rgba(0,0,0,0.06));
+  transform: scale(1.06);
+}
+
+.notif-bell-btn:hover svg {
+  transform: rotate(-12deg);
+}
+
+.notif-bell-btn:active {
+  transform: scale(0.96);
 }
 
 .notif-badge {
@@ -1402,6 +1592,12 @@ textarea.form-input {
   padding: 0 4px;
   line-height: 1;
   pointer-events: none;
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.08); opacity: 0.9; }
 }
 
 .notif-panel {
@@ -1418,6 +1614,12 @@ textarea.form-input {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: dropdown-in 0.2s ease-out;
+}
+
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .notif-panel-header {
@@ -1538,19 +1740,24 @@ textarea.form-input {
   background: none;
   border: 1.5px solid var(--border);
   border-radius: 999px;
-  padding: 6px 14px 6px 10px;
+  padding: 6px 12px 6px 10px;
   cursor: pointer;
   font-family: inherit;
-  font-size: 0.82rem;
+  font-size: 0.87rem;
   font-weight: 600;
   color: var(--text);
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 
 .mygroups-btn:hover {
   background: var(--bg-hover, rgba(0,0,0,0.04));
   border-color: var(--primary);
+  transform: scale(1.03);
+}
+
+.mygroups-btn:active {
+  transform: scale(0.98);
 }
 
 .mygroups-count {
@@ -1582,6 +1789,7 @@ textarea.form-input {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: dropdown-in 0.2s ease-out;
 }
 
 .mygroups-panel-header {
