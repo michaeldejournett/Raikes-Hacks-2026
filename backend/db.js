@@ -2,6 +2,7 @@ import Database from 'better-sqlite3'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { generalizeText } from './keywords.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const dbPath = process.env.DB_PATH || path.join(__dirname, 'gather.db')
@@ -160,8 +161,8 @@ function seedFromScraped() {
       const end = parseIsoDatetime(ev.end)
       if (!start.date) continue
 
-      const tags = [...(ev.audience || [])]
-      if (ev.group) tags.push(ev.group)
+      const eventText = `${ev.title || ''} ${ev.description || ''} ${ev.location || ''}`
+      const tags = [...new Set([...(ev.audience || []), ...(ev.group ? [ev.group] : []), ...generalizeText(eventText)])]
 
       insert.run({
         name: ev.title || 'Untitled Event',
@@ -303,8 +304,8 @@ export function insertNewEvents(events) {
       const start = parseIsoDatetime(ev.start)
       const end = parseIsoDatetime(ev.end)
       if (!start.date) continue
-      const tags = [...(ev.audience || [])]
-      if (ev.group) tags.push(ev.group)
+      const eventText = `${ev.title || ''} ${ev.description || ''} ${ev.location || ''}`
+      const tags = [...new Set([...(ev.audience || []), ...(ev.group ? [ev.group] : []), ...generalizeText(eventText)])]
       insert.run({
         name: ev.title || 'Untitled Event',
         description: ev.description || '',

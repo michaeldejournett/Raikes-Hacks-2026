@@ -16,27 +16,33 @@ const upsertUser = db.prepare(`
 const getUserByGoogleId = db.prepare(`SELECT * FROM users WHERE google_id = ?`)
 const getUserById = db.prepare(`SELECT * FROM users WHERE id = ?`)
 
-passport.use(new GoogleStrategy(
-  {
-    clientID: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3001/api/auth/google/callback',
-  },
-  (_accessToken, _refreshToken, profile, done) => {
-    try {
-      upsertUser.run({
-        googleId: profile.id,
-        name: profile.displayName,
-        email: profile.emails?.[0]?.value || null,
-        picture: profile.photos?.[0]?.value || null,
-      })
-      const user = getUserByGoogleId.get(profile.id)
-      done(null, user)
-    } catch (err) {
-      done(err)
+const oauthConfigured = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
+
+if (oauthConfigured) {
+  passport.use(new GoogleStrategy(
+    {
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3001/api/auth/google/callback',
+    },
+    (_accessToken, _refreshToken, profile, done) => {
+      try {
+        upsertUser.run({
+          googleId: profile.id,
+          name: profile.displayName,
+          email: profile.emails?.[0]?.value || null,
+          picture: profile.photos?.[0]?.value || null,
+        })
+        const user = getUserByGoogleId.get(profile.id)
+        done(null, user)
+      } catch (err) {
+        done(err)
+      }
     }
-  }
-))
+  ))
+} else {
+  console.warn('Google OAuth not configured — GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET not set')
+}
 
 passport.serializeUser((user, done) => done(null, user.id))
 passport.deserializeUser((id, done) => {
@@ -49,15 +55,18 @@ passport.deserializeUser((id, done) => {
 })
 
 // Start OAuth flow
-router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'] }))
+router.get('/google', (req, res, next) => {
+  if (!oauthConfigured) return res.status(503).json({ error: 'Google OAuth not configured' })
+  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next)
+})
 
 // OAuth callback
-router.get('/google/callback',
-  passport.authenticate('google', { failureRedirect: '/' }),
-  (_req, res) => {
+router.get('/google/callback', (req, res) => {
+  if (!oauthConfigured) return res.redirect('/')
+  passport.authenticate('google', { failureRedirect: '/' })(req, res, () => {
     res.redirect(process.env.FRONTEND_URL || 'http://localhost:5173')
-  }
-)
+  })
+})
 
 // Get current user
 router.get('/me', (req, res) => {

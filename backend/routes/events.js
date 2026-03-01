@@ -34,7 +34,7 @@ router.get('/', (_req, res) => {
 
 router.get('/search', async (req, res) => {
   try {
-    const { q, top = 50 } = req.query
+    const { q } = req.query
     if (!q || !q.trim()) return res.json({ terms: [], llmUsed: false, results: [] })
 
     const rawTerms = q.toLowerCase().match(/[a-z0-9]+/g)?.filter(w => w.length > 1) || []
@@ -79,9 +79,8 @@ router.get('/search', async (req, res) => {
     }
 
     scored.sort((a, b) => b.score - a.score)
-    const results = scored.slice(0, Number(top))
 
-    res.json({ terms, llmUsed, count: results.length, results })
+    res.json({ terms, llmUsed, count: scored.length, results: scored })
   } catch (err) {
     console.error('GET /api/events/search', err)
     res.status(500).json({ error: 'Search failed' })
