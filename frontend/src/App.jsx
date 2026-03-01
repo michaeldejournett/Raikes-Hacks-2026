@@ -147,11 +147,11 @@ export default function App() {
 
   const filteredEvents = useMemo(() => {
     const source = searchResults ?? events
-    // AI date range takes priority; fall back to user-set sidebar dates
-    const dateFrom = searchMeta?.dateRange?.start || filters.dateFrom
-    const dateTo   = searchMeta?.dateRange?.end   || filters.dateTo
-    const timeFrom = searchResults ? (searchMeta?.timeRange?.start || null) : null
-    const timeTo   = searchResults ? (searchMeta?.timeRange?.end   || null) : null
+    // Sidebar is the single source of truth — AI populates it automatically, user can always adjust
+    const dateFrom = filters.dateFrom
+    const dateTo   = filters.dateTo
+    const timeFrom = searchMeta?.timeRange?.start || null
+    const timeTo   = searchMeta?.timeRange?.end   || null
 
     return source.filter((ev) => {
       if (filters.category.length && !filters.category.includes(ev.category)) return false
