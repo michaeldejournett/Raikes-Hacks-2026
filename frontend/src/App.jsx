@@ -147,9 +147,9 @@ export default function App() {
 
   const filteredEvents = useMemo(() => {
     const source = searchResults ?? events
-    // In search mode, only apply date/time when AI explicitly extracted them — never bleed sidebar dates into keyword search
-    const dateFrom = searchResults ? (searchMeta?.dateRange?.start || '') : filters.dateFrom
-    const dateTo   = searchResults ? (searchMeta?.dateRange?.end   || '') : filters.dateTo
+    // AI date range takes priority; fall back to user-set sidebar dates
+    const dateFrom = searchMeta?.dateRange?.start || filters.dateFrom
+    const dateTo   = searchMeta?.dateRange?.end   || filters.dateTo
     const timeFrom = searchResults ? (searchMeta?.timeRange?.start || null) : null
     const timeTo   = searchResults ? (searchMeta?.timeRange?.end   || null) : null
 
