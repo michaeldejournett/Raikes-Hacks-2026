@@ -1,6 +1,12 @@
 import logo from '../assets/logo.png'
+import { api } from '../api'
 
-export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, onLogoClick }) {
+export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, onLogoClick, user, onUserChange }) {
+  const handleLogout = async () => {
+    await api.logout()
+    onUserChange(null)
+  }
+
   return (
     <nav className="navbar">
       <button
@@ -28,7 +34,21 @@ export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, on
       </div>
 
       <div className="navbar-actions">
-        <span style={{ fontSize: '1.3rem', color: 'var(--text-muted)' }}>We already know where you're going.</span>
+        {user ? (
+          <div className="navbar-user">
+            {user.picture && (
+              <img src={user.picture} alt={user.name} className="navbar-avatar" />
+            )}
+            <span className="navbar-username">{user.name}</span>
+            <button className="btn btn-ghost btn-sm" onClick={handleLogout}>
+              Sign out
+            </button>
+          </div>
+        ) : (
+          <a className="btn btn-primary btn-sm" href="/api/auth/google">
+            Sign in with Google
+          </a>
+        )}
       </div>
     </nav>
   )

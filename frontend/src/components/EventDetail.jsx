@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '../api'
 import { getCategoryMeta } from '../data/events'
 import { generateIcs } from '../utils/icsGenerator'
 import GroupModal from './GroupModal'
+import GroupMessageBoard from './GroupMessageBoard'
 
 function formatDate(dateStr) {
   if (!dateStr) return ''
@@ -18,15 +19,17 @@ function formatTime(timeStr) {
   return `${hour}:${String(m).padStart(2, '0')} ${ampm} CT`
 }
 
-export default function EventDetail({ event, onBack }) {
+export default function EventDetail({ event, onBack, user }) {
   const cat = getCategoryMeta(event.category)
 
-  const [modal, setModal]           = useState(null)
-  const [joinedIds, setJoinedIds]   = useState(new Set())
-  const [groups, setGroups]         = useState([])
+  const [modal, setModal]               = useState(null)
+  const [groups, setGroups]             = useState([])
   const [loadingGroups, setLoadingGroups] = useState(true)
+  const [groupError, setGroupError]     = useState('')
+  const [expandedChat, setExpandedChat] = useState(null)
+  const [copiedId, setCopiedId]         = useState(null)
 
-  const loadGroups = async () => {
+  const loadGroups = useCallback(async () => {
     try {
       const data = await api.getGroups(event.id)
       setGroups(data)
@@ -35,28 +38,64 @@ export default function EventDetail({ event, onBack }) {
     } finally {
       setLoadingGroups(false)
     }
+  }, [event.id])
+
+  useEffect(() => { loadGroups() }, [loadGroups])
+
+  const userOwnsAGroup = groups.some(g => g.isOwner)
+
+  const handleLeave = async (groupId) => {
+    try {
+      await api.leaveGroup(groupId)
+      await loadGroups()
+    } catch (err) {
+      console.error('Leave failed:', err)
+    }
   }
 
-  useEffect(() => { loadGroups() }, [event.id])
+  const handleDelete = async (groupId) => {
+    if (!window.confirm('Delete this group? This cannot be undone.')) return
+    try {
+      await api.deleteGroup(groupId)
+      await loadGroups()
+    } catch (err) {
+      console.error('Delete failed:', err)
+    }
+  }
 
-  const handleModalConfirm = async ({ yourName, groupName, description }) => {
+  const handleModalConfirm = async (data) => {
+    setGroupError('')
     try {
       if (modal.mode === 'create') {
         await api.createGroup({
           eventId: event.id,
-          name: groupName,
-          description,
-          creator: yourName,
+          name: data.groupName,
+          description: data.description,
+          capacity: data.capacity,
+          meetupDetails: data.meetupDetails,
+          vibeTags: data.vibeTags,
         })
       } else {
-        await api.joinGroup(modal.group.id, yourName)
-        setJoinedIds((prev) => new Set([...prev, modal.group.id]))
+        await api.joinGroup(modal.group.id)
       }
       await loadGroups()
     } catch (err) {
-      console.error('Group operation failed:', err)
+      setGroupError(err.message)
+      return
     }
     setModal(null)
+  }
+
+  const shareGroup = (group) => {
+    const url = `${window.location.origin}${window.location.pathname}?event=${event.id}&group=${group.id}`
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(group.id)
+      setTimeout(() => setCopiedId(null), 2000)
+    })
+  }
+
+  const toggleChat = (groupId) => {
+    setExpandedChat(prev => prev === groupId ? null : groupId)
   }
 
   const isSameDay = event.date === event.endDate
@@ -118,7 +157,6 @@ export default function EventDetail({ event, onBack }) {
                 <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{event.location}</div>
               </div>
             </div>
-
           </div>
 
           <p className="detail-description">{event.description}</p>
@@ -162,6 +200,7 @@ export default function EventDetail({ event, onBack }) {
         </div>
       </div>
 
+      {/* ── Groups Section ── */}
       <div className="groups-section">
         <div className="groups-section-header">
           <h2 className="groups-section-title">
@@ -170,48 +209,151 @@ export default function EventDetail({ event, onBack }) {
               {loadingGroups ? '…' : `${groups.length} ${groups.length === 1 ? 'group' : 'groups'}`}
             </span>
           </h2>
-          <button className="btn btn-primary btn-sm" onClick={() => setModal({ mode: 'create' })}>
-            + Create Group
-          </button>
+          {user && !userOwnsAGroup && (
+            <button className="btn btn-primary btn-sm" onClick={() => setModal({ mode: 'create' })}>
+              + Create Group
+            </button>
+          )}
         </div>
+
+        {!user && (
+          <div className="groups-auth-prompt">
+            <a className="btn btn-outline btn-sm" href="/api/auth/google">
+              Sign in with Google
+            </a>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>to create or join groups</span>
+          </div>
+        )}
 
         {!loadingGroups && groups.length === 0 ? (
           <div className="groups-empty">
-            <p>No groups yet — be the first to organize one! 🚀</p>
+            <p>No groups yet — be the first to organize one!</p>
           </div>
         ) : (
           <div className="groups-list">
             {groups.map((group) => {
-              const hasJoined = joinedIds.has(group.id)
+              const pct = group.capacity > 0
+                ? Math.min(100, Math.round((group.memberCount / group.capacity) * 100))
+                : null
+
               return (
-                <div key={group.id} className="group-card">
+                <div key={group.id} className={`group-card ${group.isFull ? 'group-card-full' : ''}`}>
                   <div className="group-card-header">
-                    <span className="group-card-name">{group.name}</span>
-                    {hasJoined ? (
-                      <span className="badge joined-badge">✓ Joined</span>
-                    ) : (
-                      <button
-                        className="btn btn-outline btn-sm"
-                        onClick={() => setModal({ mode: 'join', group })}
-                      >
-                        Join
-                      </button>
-                    )}
+                    <div className="group-card-title-row">
+                      <span className="group-card-name">{group.name}</span>
+                      <span className={`group-status-badge ${group.status}`}>
+                        {group.status === 'full' ? 'Full' : 'Open'}
+                      </span>
+                    </div>
+                    <div className="group-card-actions">
+                      {group.isOwner ? (
+                        <>
+                          <span className="badge joined-badge">Your group</span>
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={() => handleDelete(group.id)}
+                          >
+                            Delete
+                          </button>
+                        </>
+                      ) : group.hasJoined ? (
+                        <>
+                          <span className="badge joined-badge">✓ Joined</span>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => handleLeave(group.id)}
+                          >
+                            Leave
+                          </button>
+                        </>
+                      ) : user && !group.isFull ? (
+                        <button
+                          className="btn btn-outline btn-sm"
+                          onClick={() => { setGroupError(''); setModal({ mode: 'join', group }) }}
+                        >
+                          Join
+                        </button>
+                      ) : group.isFull ? (
+                        <span className="badge full-badge">Group Full</span>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="group-card-meta">
-                    Created by {group.creator} · {group.members.length} {group.members.length === 1 ? 'member' : 'members'}
+                    Created by {group.creator} · {group.memberCount} {group.memberCount === 1 ? 'member' : 'members'}
+                    {group.capacity > 0 && ` / ${group.capacity} max`}
                   </div>
+
+                  {pct !== null && (
+                    <div className="capacity-bar-wrapper">
+                      <div className="capacity-bar">
+                        <div
+                          className={`capacity-bar-fill ${group.isFull ? 'full' : ''}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="capacity-label">{group.memberCount}/{group.capacity}</span>
+                    </div>
+                  )}
 
                   {group.description && (
                     <p className="group-card-description">{group.description}</p>
                   )}
 
+                  {group.meetupDetails && (
+                    <div className="group-meetup">
+                      <span className="group-meetup-icon">📍</span>
+                      <span>{group.meetupDetails}</span>
+                    </div>
+                  )}
+
+                  {group.vibeTags?.length > 0 && (
+                    <div className="group-vibes">
+                      {group.vibeTags.map(tag => (
+                        <span key={tag} className="vibe-tag">{tag}</span>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="group-members">
                     {group.members.map((m, i) => (
-                      <span key={i} className="member-chip">{m}</span>
+                      <div key={i} className="member-chip-row">
+                        <span className="member-chip">{m.name}</span>
+                        {(group.hasJoined || group.isOwner) && m.email && (
+                          <span className="member-contact">
+                            <a href={`mailto:${m.email}`} title={m.email}>✉️</a>
+                          </span>
+                        )}
+                      </div>
                     ))}
                   </div>
+
+                  {!group.hasJoined && !group.isOwner && group.memberCount > 0 && (
+                    <p className="contact-hint">Join to see contact info</p>
+                  )}
+
+                  <div className="group-toolbar">
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => shareGroup(group)}
+                      title="Copy share link"
+                    >
+                      {copiedId === group.id ? '✓ Copied!' : '🔗 Share'}
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => toggleChat(group.id)}
+                    >
+                      💬 {expandedChat === group.id ? 'Hide Chat' : 'Chat'}
+                    </button>
+                  </div>
+
+                  {expandedChat === group.id && (
+                    <GroupMessageBoard
+                      groupId={group.id}
+                      userName={(group.hasJoined || group.isOwner) ? user?.name : null}
+                    />
+                  )}
                 </div>
               )
             })}
@@ -224,8 +366,10 @@ export default function EventDetail({ event, onBack }) {
           mode={modal.mode}
           group={modal.group}
           eventName={event.name}
+          userName={user?.name}
+          error={groupError}
           onConfirm={handleModalConfirm}
-          onClose={() => setModal(null)}
+          onClose={() => { setModal(null); setGroupError('') }}
         />
       )}
     </div>

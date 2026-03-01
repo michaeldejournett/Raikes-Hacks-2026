@@ -34,12 +34,29 @@ function initDb() {
   `)
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      google_id TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT,
+      picture TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `)
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS groups (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT DEFAULT '',
       creator TEXT NOT NULL,
+      creator_email TEXT DEFAULT '',
+      creator_phone TEXT DEFAULT '',
+      capacity INTEGER DEFAULT 0,
+      meetup_details TEXT DEFAULT '',
+      vibe_tags TEXT DEFAULT '[]',
+      creator_id INTEGER REFERENCES users(id),
       created_at TEXT DEFAULT (datetime('now'))
     )
   `)
@@ -49,14 +66,31 @@ function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
       member_name TEXT NOT NULL,
+      user_id INTEGER REFERENCES users(id),
       joined_at TEXT DEFAULT (datetime('now')),
       UNIQUE(group_id, member_name)
+    )
+  `)
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS group_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
+      author TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
     )
   `)
 
   // Migrate: add columns that may not exist in older databases
   for (const col of ['url TEXT', 'image_url TEXT']) {
     try { db.exec(`ALTER TABLE events ADD COLUMN ${col}`) } catch { /* already exists */ }
+  }
+  for (const col of ['creator_id INTEGER', 'capacity INTEGER DEFAULT 0', 'meetup_details TEXT DEFAULT ""', 'vibe_tags TEXT DEFAULT "[]"']) {
+    try { db.exec(`ALTER TABLE groups ADD COLUMN ${col}`) } catch { /* already exists */ }
+  }
+  for (const col of ['user_id INTEGER']) {
+    try { db.exec(`ALTER TABLE group_members ADD COLUMN ${col}`) } catch { /* already exists */ }
   }
 
   const count = db.prepare('SELECT COUNT(*) AS count FROM events').get().count

@@ -23,6 +23,7 @@ export default function App() {
   const [searching, setSearching]         = useState(false)
   const [page, setPage]                   = useState(1)
   const [pageSize, setPageSize]           = useState(20)
+  const [user, setUser]                   = useState(null)
 
   const debounceRef = useRef(null)
 
@@ -65,7 +66,19 @@ export default function App() {
     }
   }
 
-  useEffect(() => { loadEvents() }, [])
+  useEffect(() => {
+    loadEvents().then(() => {
+      const params = new URLSearchParams(window.location.search)
+      const eventId = params.get('event')
+      if (eventId) {
+        api.getEvent(Number(eventId)).then(ev => {
+          if (ev) setSelectedEvent(ev)
+        }).catch(() => {})
+        window.history.replaceState({}, '', window.location.pathname)
+      }
+    })
+    api.getMe().then(setUser).catch(() => setUser(null))
+  }, [])
 
   const filteredEvents = useMemo(() => {
     const source = searchResults ?? events
@@ -78,7 +91,6 @@ export default function App() {
     })
   }, [events, searchResults, filters])
 
-  // Reset to page 1 whenever results or page size change
   useEffect(() => { setPage(1) }, [searchInput, filters, pageSize, searchResults])
 
   const totalPages  = Math.max(1, Math.ceil(filteredEvents.length / pageSize))
@@ -98,11 +110,13 @@ export default function App() {
         onSearchChange={handleSearchChange}
         onSearchSubmit={handleSearchSubmit}
         onLogoClick={() => { setSelectedEvent(null); setSearchInput(''); setSearchResults(null); setSearchMeta(null); loadEvents() }}
+        user={user}
+        onUserChange={setUser}
       />
 
       <main className="page">
         {selectedEvent ? (
-          <EventDetail event={selectedEvent} onBack={handleBack} />
+          <EventDetail event={selectedEvent} onBack={handleBack} user={user} />
         ) : (
           <div className="page-layout">
             <SearchFilters
