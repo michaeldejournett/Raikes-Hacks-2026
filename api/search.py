@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Search scraped UNL events by keyword, with optional local LLM expansion and date filtering."""
+"""Search scraped UNL events by keyword, with optional Gemini keyword expansion and date filtering."""
 
 import argparse
 import json
@@ -10,11 +10,12 @@ from datetime import datetime, timedelta, date
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+from google import genai
 
 EVENTS_FILE = "scraped/events.json"
 DEFAULT_TOP_N = 10
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
-DEFAULT_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:1b")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemma-3-12b-it")
 
 FIELD_WEIGHTS = {
     "title":       4,
@@ -33,8 +34,7 @@ STOP_WORDS = {
     "weekend", "today", "tomorrow", "tonight", "week",
 }
 
-# Kept very short — tiny models handle simple prompts best
-EXPAND_PROMPT = """List keywords to search for events matching this query. Return ONLY a JSON object.
+EXPAND_PROMPT = """List keywords to search for events matching this query. Return ONLY a JSON object with no extra text.
 Query: "{query}"
 JSON: {{"keywords": ["keyword1", "keyword2", ...]}}"""
 
@@ -50,21 +50,18 @@ def base_terms(query: str) -> List[str]:
     return [w for w in words if w not in STOP_WORDS and len(w) > 1]
 
 
-def expand_with_ollama(query: str, model: str) -> Optional[List[str]]:
-    """Call Ollama to extract/expand keywords. Returns None if unavailable."""
+def expand_with_gemini(query: str, model: str) -> Optional[List[str]]:
+    """Call Gemini API to extract/expand keywords. Returns None if unavailable."""
+    if not GEMINI_API_KEY:
+        return None
     try:
-        resp = requests.post(
-            OLLAMA_URL,
-            json={
-                "model": model,
-                "prompt": EXPAND_PROMPT.format(query=query),
-                "stream": False,
-                "format": "json",   # forces valid JSON output
-            },
-            timeout=20,
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model=model,
+            contents=EXPAND_PROMPT.format(query=query),
+            config={"response_mime_type": "application/json"},
         )
-        resp.raise_for_status()
-        text = resp.json().get("response", "").strip()
+        text = response.text.strip()
         data = json.loads(text)
         keywords = data.get("keywords") or []
         return [str(k).lower() for k in keywords if k]
@@ -76,7 +73,6 @@ def extract_date_range(query: str) -> Optional[Tuple[date, date]]:
     """Parse a date range from natural language in the query."""
     import dateparser.search
 
-    # Explicit relative shortcuts before dateparser
     q = query.lower()
     today = date.today()
 
@@ -154,12 +150,12 @@ def main() -> int:
     parser.add_argument(
         "--model",
         default=DEFAULT_MODEL,
-        help=f"Ollama model for keyword expansion (default: {DEFAULT_MODEL})",
+        help=f"Gemini model for keyword expansion (default: {DEFAULT_MODEL})",
     )
     parser.add_argument(
         "--no-llm",
         action="store_true",
-        help="Skip Ollama expansion, use raw keywords only",
+        help="Skip Gemini expansion, use raw keywords only",
     )
     parser.add_argument("--json", action="store_true", dest="as_json")
     args = parser.parse_args()
@@ -167,22 +163,19 @@ def main() -> int:
     query = " ".join(args.query)
     terms = base_terms(query)
 
-    # LLM keyword expansion via Ollama
     if not args.no_llm:
-        print(f"Expanding with Ollama ({args.model}) …", file=sys.stderr)
-        llm_keywords = expand_with_ollama(query, args.model)
+        print(f"Expanding with Gemini ({args.model}) …", file=sys.stderr)
+        llm_keywords = expand_with_gemini(query, args.model)
         if llm_keywords:
-            # Filter LLM output through the same stop-word list
             llm_keywords = [k for k in llm_keywords if k not in STOP_WORDS and len(k) > 1]
             print(f"  LLM keywords : {llm_keywords}", file=sys.stderr)
-            # Merge, dedup, preserve order
             seen = set(terms)
             for kw in llm_keywords:
                 if kw not in seen:
                     terms.append(kw)
                     seen.add(kw)
         else:
-            print("  Ollama unavailable — falling back to raw keywords.", file=sys.stderr)
+            print("  Gemini unavailable — falling back to raw keywords.", file=sys.stderr)
 
     if not terms:
         print("No search terms found in query.", file=sys.stderr)
@@ -190,7 +183,6 @@ def main() -> int:
 
     print(f"Terms          : {terms}", file=sys.stderr)
 
-    # Date filtering
     events = load_events(args.events)
     date_range = extract_date_range(query)
     if date_range:
