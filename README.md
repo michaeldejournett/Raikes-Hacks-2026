@@ -4,33 +4,36 @@ This is the RaikesHacks 2026 project for the team "Is There Input Length Validat
 
 An event discovery app with a **Looking For Group** feature — find UNL events and organize groups to attend together.
 
-## Quick Start
+## Quick Start (2 commands)
 
 > **Prerequisites:** Node.js 18+ ([download](https://nodejs.org))
 
-Copy the example env file and fill in your credentials:
-
 ```bash
-cp .env.example .env
-# edit .env with your Google OAuth credentials
+npm install    # installs root, backend, and frontend deps automatically
+npm run dev    # starts both backend & frontend concurrently
 ```
 
-Then start the backend:
+Open **http://localhost:5173** — the app loads real UNL events from the bundled `scraped/events.json` (no Docker or external services needed). Event browsing, search, and group creation all work out of the box.
+
+**Google Sign-In** is needed for groups/notifications. To enable it, copy the env template and fill in credentials:
 
 ```bash
-npm start
+cp .env.example backend/.env
+# edit backend/.env with your Google OAuth credentials
 ```
 
-And in a second terminal, start the frontend:
+**Docker** adds live event scraping and LLM-powered natural-language search via FastAPI + Ollama. See [Running Everything via Docker](#running-everything-via-docker) for more details below.
 
 ```bash
-cd frontend
-npm run dev
+# Mac / CPU-only / Windows
+docker compose up --build
+
+# Linux + NVIDIA GPU
+docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up --build
+
+# Linux + AMD GPU (ROCm)
+docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build
 ```
-
-Open `http://localhost:5173` — the frontend proxies API calls to the backend automatically.
-
-The backend starts on `http://localhost:3001` with a SQLite database (auto-created, no setup needed). If `scraped/events.json` exists it loads real UNL events; otherwise sample fallback events are used.
 
 ## Tech Stack
 
@@ -42,8 +45,12 @@ The backend starts on `http://localhost:3001` with a SQLite database (auto-creat
 
 - **Event discovery** — Browse and filter UNL events by category, date, and location
 - **AI search** — Natural-language search with keyword generalization (debounced, Enter to submit)
-- **Looking For Group** — Create or join groups for any event, with messaging
+- **Looking For Group** — Create or join groups for any event, with capacity limits, meetup details, and vibe tags
+- **Group messaging** — Real-time chat within groups (auto-refreshes every 3s), visible only to members
+- **My Groups** — Quick-access menu in the navbar showing all groups you belong to
+- **Notifications** — Bell icon tracks when someone joins/leaves your groups or sends a message
 - **Google Sign-In** — OAuth 2.0 authentication via Google
+- **Share links** — Copy a direct link to any group; recipients land on the event with the group visible
 
 ## Architecture
 
@@ -63,6 +70,7 @@ The backend starts on `http://localhost:3001` with a SQLite database (auto-creat
 ### Groups
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/api/groups/mine` | List all groups the current user belongs to |
 | GET | `/api/groups?eventId=` | List groups for an event |
 | GET | `/api/groups/:id` | Get a single group with members |
 | POST | `/api/groups` | Create a group |
@@ -71,6 +79,12 @@ The backend starts on `http://localhost:3001` with a SQLite database (auto-creat
 | DELETE | `/api/groups/:id` | Delete a group (creator only) |
 | GET | `/api/groups/:id/messages` | Get group messages |
 | POST | `/api/groups/:id/messages` | Post a message |
+
+### Notifications
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/notifications` | Get notifications for the current user (last 50 + unread count) |
+| POST | `/api/notifications/read` | Mark all as read, or a single one with `{ id }` |
 
 ### Auth
 | Method | Path | Description |

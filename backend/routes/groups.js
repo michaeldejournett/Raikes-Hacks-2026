@@ -1,6 +1,31 @@
 import { Router } from 'express'
+import multer from 'multer'
+import path from 'path'
+import fs from 'fs'
+import crypto from 'crypto'
+import { fileURLToPath } from 'url'
 import db from '../db.js'
 import { notifyGroupMembers } from './notifications.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const uploadsDir = path.join(__dirname, '..', 'uploads')
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true })
+
+const storage = multer.diskStorage({
+  destination: uploadsDir,
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname) || '.jpg'
+    cb(null, `${crypto.randomUUID()}${ext}`)
+  },
+})
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true)
+    else cb(new Error('Only images are allowed'))
+  },
+})
 
 const router = Router()
 
@@ -23,7 +48,7 @@ const deleteGroup  = db.prepare(`DELETE FROM groups WHERE id = ?`)
 const countMembers = db.prepare(`SELECT COUNT(*) AS count FROM group_members WHERE group_id = ?`)
 
 const listMessages  = db.prepare(`SELECT * FROM group_messages WHERE group_id = ? ORDER BY created_at ASC`)
-const insertMessage = db.prepare(`INSERT INTO group_messages (group_id, author, body) VALUES (?, ?, ?)`)
+const insertMessage = db.prepare(`INSERT INTO group_messages (group_id, author, body, image_url) VALUES (?, ?, ?, ?)`)
 
 function requireAuth(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Sign in with Google to use groups' })
@@ -211,19 +236,22 @@ router.get('/:id', (req, res) => {
   }
 })
 
+function serializeMessages(groupId) {
+  return listMessages.all(groupId).map(r => ({
+    id: r.id,
+    author: r.author,
+    body: r.body,
+    imageUrl: r.image_url || '',
+    createdAt: r.created_at,
+  }))
+}
+
 // Messages
 router.get('/:id/messages', (req, res) => {
   try {
     const group = getGroup.get(req.params.id)
     if (!group) return res.status(404).json({ error: 'Group not found' })
-
-    const rows = listMessages.all(group.id)
-    res.json(rows.map(r => ({
-      id: r.id,
-      author: r.author,
-      body: r.body,
-      createdAt: r.created_at,
-    })))
+    res.json(serializeMessages(group.id))
   } catch (err) {
     console.error('GET /api/groups/:id/messages', err)
     res.status(500).json({ error: 'Failed to fetch messages' })
@@ -240,19 +268,32 @@ router.post('/:id/messages', requireAuth, (req, res) => {
     const group = getGroup.get(req.params.id)
     if (!group) return res.status(404).json({ error: 'Group not found' })
 
-    insertMessage.run(group.id, req.user.name, body.trim())
+    insertMessage.run(group.id, req.user.name, body.trim(), '')
     notifyGroupMembers(group.id, req.user.id, 'message', req.user.name, group.name, body.trim().slice(0, 100))
 
-    const rows = listMessages.all(group.id)
-    res.status(201).json(rows.map(r => ({
-      id: r.id,
-      author: r.author,
-      body: r.body,
-      createdAt: r.created_at,
-    })))
+    res.status(201).json(serializeMessages(group.id))
   } catch (err) {
     console.error('POST /api/groups/:id/messages', err)
     res.status(500).json({ error: 'Failed to post message' })
+  }
+})
+
+router.post('/:id/messages/image', requireAuth, upload.single('image'), (req, res) => {
+  try {
+    const group = getGroup.get(req.params.id)
+    if (!group) return res.status(404).json({ error: 'Group not found' })
+    if (!req.file) return res.status(400).json({ error: 'No image provided' })
+
+    const imageUrl = `/api/uploads/${req.file.filename}`
+    const caption = (req.body.body || '').trim()
+
+    insertMessage.run(group.id, req.user.name, caption, imageUrl)
+    notifyGroupMembers(group.id, req.user.id, 'message', req.user.name, group.name, caption || '📷 Image')
+
+    res.status(201).json(serializeMessages(group.id))
+  } catch (err) {
+    console.error('POST /api/groups/:id/messages/image', err)
+    res.status(500).json({ error: 'Failed to upload image' })
   }
 })
 

@@ -39,6 +39,7 @@ app.use('/api/auth', authRouter)
 app.use('/api/events', eventsRouter)
 app.use('/api/groups', groupsRouter)
 app.use('/api/notifications', notificationsRouter)
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')))
 
 if (process.env.NODE_ENV === 'production') {
   const frontendDist = path.join(__dirname, '..', 'frontend', 'dist')

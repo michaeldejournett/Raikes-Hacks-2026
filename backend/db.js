@@ -107,6 +107,9 @@ function initDb() {
   for (const col of ['user_id INTEGER']) {
     try { db.exec(`ALTER TABLE group_members ADD COLUMN ${col}`) } catch { /* already exists */ }
   }
+  for (const col of ['image_url TEXT DEFAULT ""']) {
+    try { db.exec(`ALTER TABLE group_messages ADD COLUMN ${col}`) } catch { /* already exists */ }
+  }
 
   const count = db.prepare('SELECT COUNT(*) AS count FROM events').get().count
   if (count === 0) {
