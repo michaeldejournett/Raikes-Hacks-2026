@@ -39,7 +39,6 @@ export default function EventCard({ event, groupCount, onClick }) {
 
       <div className="event-card-body">
         <div className="event-card-category">
-          <span>{cat.emoji}</span>
           <span style={{ color: cat.color }}>{cat.label}</span>
         </div>
 
