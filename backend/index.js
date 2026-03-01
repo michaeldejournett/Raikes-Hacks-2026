@@ -2,6 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import session from 'express-session'
+import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import eventsRouter from './routes/events.js'
@@ -27,7 +28,7 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',   // lax is correct — frontend and backend share the same domain
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   },
 }))
@@ -41,8 +42,8 @@ app.use('/api/groups', groupsRouter)
 app.use('/api/notifications', notificationsRouter)
 app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')))
 
-if (process.env.NODE_ENV === 'production') {
-  const frontendDist = path.join(__dirname, '..', 'frontend', 'dist')
+const frontendDist = path.join(__dirname, '..', 'frontend', 'dist')
+if (process.env.NODE_ENV === 'production' && fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist))
   app.get('*', (_req, res) => {
     res.sendFile(path.join(frontendDist, 'index.html'))

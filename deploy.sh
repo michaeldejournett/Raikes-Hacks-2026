@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# deploy.sh — Deploy Curia to Railway
+# deploy.sh — Deploy all 3 Curia services to Railway
+# Each service is deployed from its own subdirectory using its own railway.json.
+#
+# Services:
+#   backend  → backend/   (Express API)
+#   api      → api/       (FastAPI scraper)
+#   frontend → frontend/  (React static site)
+#
 # Usage: ./deploy.sh
 
 set -euo pipefail
@@ -7,58 +14,26 @@ set -euo pipefail
 log() { echo ""; echo "==> $*"; }
 die() { echo "ERROR: $*" >&2; exit 1; }
 
-command -v railway &>/dev/null || die "Railway CLI not found. Install with: npm install -g @railway/cli"
-railway whoami &>/dev/null || { log "Not logged in..."; railway login; }
+command -v railway &>/dev/null || die "Railway CLI not found. Install: npm i -g @railway/cli"
+railway whoami &>/dev/null    || die "Not logged in. Run: railway login"
+railway status &>/dev/null    || die "No project linked. Run: railway link"
 
-# ── Verify project is linked ──────────────────────────────────────────────────
+# All 3 services deploy from the REPO ROOT so scraped/events.json is available.
+# Each service uses its own railway.json (set via railwayConfigFile in Railway dashboard).
 
-railway status &>/dev/null || die "No Railway project linked. Run: railway link"
-
-# ── Create services if they don't exist ──────────────────────────────────────
-
-log "Creating services (skipped if already exist)..."
-railway add --service backend 2>/dev/null || true
-railway add --service api     2>/dev/null || true
-
-# ── Deploy: backend + frontend (root railway.json) ────────────────────────────
-
-log "Deploying backend + frontend..."
-railway up --service backend --detach --no-gitignore
-
-# ── Deploy: FastAPI scraper (api/ subdirectory) ───────────────────────────────
-
-log "Deploying api (scraper)..."
-(cd api && railway up --service api --detach)
-
-# ── Generate public domains ───────────────────────────────────────────────────
-
-log "Ensuring public domains exist..."
-railway domain --service backend 2>/dev/null || true
-railway domain --service api     2>/dev/null || true
-
-# ── Wire up environment variables ─────────────────────────────────────────────
-
-log "Setting environment variables..."
-
-# Grab the api service's public domain so the backend can reach it
-API_DOMAIN=$(railway domain --service api 2>&1 | grep -oP '[a-z0-9-]+\.up\.railway\.app' | head -1)
-
-if [ -n "$API_DOMAIN" ]; then
-  railway variable --service backend set \
-    FASTAPI_URL="https://${API_DOMAIN}" \
-    EVENTS_API_URL="https://${API_DOMAIN}/events"
-  echo "  FASTAPI_URL   = https://${API_DOMAIN}"
-  echo "  EVENTS_API_URL= https://${API_DOMAIN}/events"
-else
-  echo "  Could not detect api domain — set manually:"
-  echo "    railway variable --service backend set FASTAPI_URL=https://<api-domain>.up.railway.app"
-  echo "    railway variable --service backend set EVENTS_API_URL=https://<api-domain>.up.railway.app/events"
-fi
-
-# ── Done ─────────────────────────────────────────────────────────────────────
-
+log "Deploying backend (Express API)..."
+railway up --service backend --detach 
+log "Deploying api (FastAPI scraper)..."
+railway up --service api --detach 
+log "Deploying frontend (React)..."
+railway up --service frontend --detach 
 echo ""
-echo "Deployed! Useful commands:"
+echo "All 3 deploys triggered. Check status:"
+echo "  railway service status --service backend"
+echo "  railway service status --service api"
+echo "  railway service status --service frontend"
+echo ""
+echo "View logs:"
 echo "  railway logs --service backend"
 echo "  railway logs --service api"
-echo "  railway open"
+echo "  railway logs --service frontend"

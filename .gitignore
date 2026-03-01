@@ -2,7 +2,7 @@
 .venv/
 __pycache__/
 *.pyc
-scraped/
+scraped/*.json.bak
 node_modules/
 dist/
 .env

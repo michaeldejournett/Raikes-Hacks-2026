@@ -1,64 +1,48 @@
 services:
 
-  # ── Ollama inference server ───────────────────────────────────────────────
-  # GPU support is handled by overlay files:
-  #   NVIDIA:  docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up
-  #   AMD ROCm: docker compose -f docker-compose.yml -f docker-compose.amd.yml up
-  #   Mac / CPU-only: docker compose up  (this file alone)
-  ollama:
-    image: ollama/ollama
-    volumes:
-      - ollama_data:/root/.ollama   # model weights persist across restarts
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 10s
-      timeout: 10s
-      retries: 12
-      start_period: 30s
-
-  # ── One-shot: pull the model into the shared volume ───────────────────────
-  ollama-pull:
-    image: ollama/ollama
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["ollama", "pull", "llama3.2:1b"]
-    depends_on:
-      ollama:
-        condition: service_healthy
-
-  # ── FastAPI search + scraper service ─────────────────────────────────────
+  # ── FastAPI scraper + search (private) ───────────────────────────────────
   api:
-    build: ./api
-    ports:
-      - "8080:8000"
+    build:
+      context: .
+      dockerfile: api/Dockerfile
     volumes:
-      - ./scraped:/app/scraped     # scraped data persists on the host
+      - ./scraped:/app/scraped       # scraped data persists on host
     environment:
-      OLLAMA_URL: http://ollama:11434/api/generate
-      OLLAMA_MODEL: llama3.2:1b
-      SCRAPE_INTERVAL: "3600"      # re-scrape every hour; set to 0 to disable
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      SCRAPE_INTERVAL: "3600"
       SCRAPE_WORKERS: "10"
-    depends_on:
-      ollama:
-        condition: service_healthy
-      ollama-pull:
-        condition: service_completed_successfully
 
-  # ── Express + SQLite backend (events & groups API) ───────────────────────
+  # ── Express API + SQLite (private) ───────────────────────────────────────
   backend:
-    build: ./backend
-    ports:
-      - "3001:3001"
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     volumes:
-      - ./scraped:/scraped      # shares scraped events.json with the api service
-      - backend_db:/data        # persists SQLite DB across restarts
+      - backend_db:/data             # SQLite DB persists across restarts
     environment:
       PORT: "3001"
       NODE_ENV: production
       DB_PATH: /data/gather.db
+      EVENTS_API_URL: http://api:8000/events
+      FASTAPI_URL: http://api:8000
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-me}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+    depends_on:
+      - api
+
+  # ── nginx: serves React + proxies /api to backend (public) ──────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "80:80"
+    environment:
+      BACKEND_URL: http://backend:3001
+    depends_on:
+      - backend
 
 volumes:
-  ollama_data:
   backend_db:
