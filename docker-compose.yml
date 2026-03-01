@@ -3,8 +3,7 @@ services:
   # ── FastAPI scraper + search (private) ───────────────────────────────────
   api:
     build:
-      context: .
-      dockerfile: api/Dockerfile
+      context: ./api
     volumes:
       - ./scraped:/app/scraped       # scraped data persists on host
     environment:

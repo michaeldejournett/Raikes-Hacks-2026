@@ -34,9 +34,28 @@ STOP_WORDS = {
     "weekend", "today", "tomorrow", "tonight", "week",
 }
 
-EXPAND_PROMPT = """List keywords to search for events matching this query. Return ONLY a JSON object with no extra text.
+EXPAND_PROMPT = """Today is {now} ({weekday}).
+
+You are helping search a university event database. Given a query, do two things:
+
+1. KEYWORD EXPANSION: Extract the core topics and expand each general term into specific concrete examples.
+   - Include the original term AND its specific instances (e.g. "food" → ["food", "pasta", "pizza", "tacos", "burger", "salad", "BBQ", "sushi"])
+   - Include synonyms, related activities, and subcategories (e.g. "music" → ["music", "concert", "jazz", "rock", "band", "choir", "orchestra", "recital"])
+   - Include relevant people/roles (e.g. "volunteer" → ["volunteer", "service", "community", "outreach", "nonprofit"])
+   - Keep all keywords lowercase, single words or short phrases
+
+2. DATE EXTRACTION: Resolve any relative date references using today's date.
+   - "today" → today's date
+   - "tomorrow" → tomorrow's date
+   - "this weekend" → nearest Saturday and Sunday
+   - "next week" → next Monday through Sunday
+   - "two weeks from now" → date 14 days from today
+   - If no date is mentioned, return null for both date fields
+
+Return ONLY a JSON object with no extra text.
+
 Query: "{query}"
-JSON: {{"keywords": ["keyword1", "keyword2", ...]}}"""
+JSON: {{"keywords": ["keyword1", "keyword2", ...], "date_from": "YYYY-MM-DD or null", "date_to": "YYYY-MM-DD or null"}}"""
 
 
 def load_events(path: str) -> List[Dict[str, Any]]:
@@ -50,23 +69,41 @@ def base_terms(query: str) -> List[str]:
     return [w for w in words if w not in STOP_WORDS and len(w) > 1]
 
 
-def expand_with_gemini(query: str, model: str) -> Optional[List[str]]:
-    """Call Gemini API to extract/expand keywords. Returns None if unavailable."""
+def expand_with_gemini(query: str, model: str) -> Tuple[Optional[List[str]], Optional[Tuple[date, date]]]:
+    """Call Gemini API to extract/expand keywords and resolve date references.
+    Returns (keywords, date_range) — either can be None if unavailable."""
     if not GEMINI_API_KEY:
-        return None
+        return None, None
     try:
+        now = datetime.now()
+        prompt = EXPAND_PROMPT.format(
+            now=now.strftime("%Y-%m-%d %H:%M"),
+            weekday=now.strftime("%A"),
+            query=query,
+        )
         client = genai.Client(api_key=GEMINI_API_KEY)
         response = client.models.generate_content(
             model=model,
-            contents=EXPAND_PROMPT.format(query=query),
+            contents=prompt,
             config={"response_mime_type": "application/json"},
         )
-        text = response.text.strip()
-        data = json.loads(text)
-        keywords = data.get("keywords") or []
-        return [str(k).lower() for k in keywords if k]
+        data = json.loads(response.text.strip())
+        keywords = [str(k).lower() for k in (data.get("keywords") or []) if k]
+
+        date_range = None
+        df = data.get("date_from")
+        dt = data.get("date_to")
+        if df and df != "null":
+            try:
+                start = date.fromisoformat(str(df))
+                end = date.fromisoformat(str(dt)) if dt and dt != "null" else start
+                date_range = (start, end)
+            except ValueError:
+                pass
+
+        return keywords, date_range
     except Exception:
-        return None
+        return None, None
 
 
 def extract_date_range(query: str) -> Optional[Tuple[date, date]]:
@@ -163,12 +200,15 @@ def main() -> int:
     query = " ".join(args.query)
     terms = base_terms(query)
 
+    llm_date_range = None
     if not args.no_llm:
         print(f"Expanding with Gemini ({args.model}) …", file=sys.stderr)
-        llm_keywords = expand_with_gemini(query, args.model)
+        llm_keywords, llm_date_range = expand_with_gemini(query, args.model)
         if llm_keywords:
             llm_keywords = [k for k in llm_keywords if k not in STOP_WORDS and len(k) > 1]
             print(f"  LLM keywords : {llm_keywords}", file=sys.stderr)
+            if llm_date_range:
+                print(f"  LLM dates    : {llm_date_range[0]} → {llm_date_range[1]}", file=sys.stderr)
             seen = set(terms)
             for kw in llm_keywords:
                 if kw not in seen:
@@ -184,7 +224,7 @@ def main() -> int:
     print(f"Terms          : {terms}", file=sys.stderr)
 
     events = load_events(args.events)
-    date_range = extract_date_range(query)
+    date_range = llm_date_range or extract_date_range(query)
     if date_range:
         print(f"Date filter    : {date_range[0]} → {date_range[1]}", file=sys.stderr)
         events = filter_by_date(events, date_range)

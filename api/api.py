@@ -157,8 +157,9 @@ def search_events(
     terms = base_terms(q)
     llm_used = False
 
+    llm_date_range = None
     if not no_llm:
-        llm_keywords = expand_with_gemini(q, model)
+        llm_keywords, llm_date_range = expand_with_gemini(q, model)
         if llm_keywords:
             llm_keywords = [k for k in llm_keywords if k not in STOP_WORDS and len(k) > 1]
             seen = set(terms)
@@ -171,7 +172,7 @@ def search_events(
     if not terms:
         return JSONResponse(status_code=400, content={"error": "No usable search terms in query."})
 
-    date_range = extract_date_range(q)
+    date_range = llm_date_range or extract_date_range(q)
     pool = filter_by_date(_events, date_range) if date_range else _events
     results = search(pool, terms, top)
 
