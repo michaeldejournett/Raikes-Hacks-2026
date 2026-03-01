@@ -36,6 +36,25 @@ log "Ensuring public domains exist..."
 railway domain --service backend 2>/dev/null || true
 railway domain --service api     2>/dev/null || true
 
+# ── Wire up environment variables ─────────────────────────────────────────────
+
+log "Setting environment variables..."
+
+# Grab the api service's public domain so the backend can reach it
+API_DOMAIN=$(railway domain --service api 2>&1 | grep -oP '[a-z0-9-]+\.up\.railway\.app' | head -1)
+
+if [ -n "$API_DOMAIN" ]; then
+  railway variable --service backend set \
+    FASTAPI_URL="https://${API_DOMAIN}" \
+    EVENTS_API_URL="https://${API_DOMAIN}/events"
+  echo "  FASTAPI_URL   = https://${API_DOMAIN}"
+  echo "  EVENTS_API_URL= https://${API_DOMAIN}/events"
+else
+  echo "  Could not detect api domain — set manually:"
+  echo "    railway variable --service backend set FASTAPI_URL=https://<api-domain>.up.railway.app"
+  echo "    railway variable --service backend set EVENTS_API_URL=https://<api-domain>.up.railway.app/events"
+fi
+
 # ── Done ─────────────────────────────────────────────────────────────────────
 
 echo ""

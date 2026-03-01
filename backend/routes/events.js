@@ -4,6 +4,7 @@ import db from '../db.js'
 const router = Router()
 
 const FASTAPI_URL = process.env.FASTAPI_URL || 'http://localhost:8080'
+const NO_LLM = process.env.OLLAMA_URL ? 'false' : 'true'  // skip Ollama if not configured
 
 const listEvents = db.prepare(`
   SELECT e.*,
@@ -42,8 +43,8 @@ router.get('/search', async (req, res) => {
 
     try {
       const resp = await fetch(
-        `${FASTAPI_URL}/search?${new URLSearchParams({ q, top: '1', no_llm: 'false' })}`,
-        { signal: AbortSignal.timeout(1500) }
+        `${FASTAPI_URL}/search?${new URLSearchParams({ q, top: '1', no_llm: NO_LLM })}`,
+        { signal: AbortSignal.timeout(5000) }
       )
       if (resp.ok) {
         const data = await resp.json()

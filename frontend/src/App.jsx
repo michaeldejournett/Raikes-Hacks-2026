@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { api } from './api'
 import Navbar from './components/Navbar'
 import SearchFilters from './components/SearchFilters'
@@ -24,21 +24,10 @@ export default function App() {
   const [page, setPage]                   = useState(1)
   const [pageSize, setPageSize]           = useState(20)
 
-  const handleSearchChange = (value) => {
-    setSearchInput(value)
-    if (!value.trim()) {
-      setSearchResults(null)
-      setSearchMeta(null)
-    }
-  }
+  const debounceRef = useRef(null)
 
-  const handleSearchSubmit = useCallback(async () => {
-    const q = searchInput.trim()
-    if (!q) {
-      setSearchResults(null)
-      setSearchMeta(null)
-      return
-    }
+  const doSearch = useCallback(async (q) => {
+    if (!q) { setSearchResults(null); setSearchMeta(null); return }
     setSearching(true)
     try {
       const data = await api.searchEvents(q)
@@ -51,7 +40,19 @@ export default function App() {
     } finally {
       setSearching(false)
     }
-  }, [searchInput])
+  }, [])
+
+  const handleSearchChange = (value) => {
+    setSearchInput(value)
+    clearTimeout(debounceRef.current)
+    if (!value.trim()) { setSearchResults(null); setSearchMeta(null); return }
+    debounceRef.current = setTimeout(() => doSearch(value.trim()), 500)
+  }
+
+  const handleSearchSubmit = useCallback(() => {
+    clearTimeout(debounceRef.current)
+    doSearch(searchInput.trim())
+  }, [searchInput, doSearch])
 
   const loadEvents = async () => {
     try {
@@ -67,20 +68,7 @@ export default function App() {
   useEffect(() => { loadEvents() }, [])
 
   const filteredEvents = useMemo(() => {
-    let source = searchResults ?? events
-
-    const q = searchInput.trim().toLowerCase()
-    if (!searchResults && q) {
-      const terms = q.match(/[a-z0-9]+/g)?.filter(w => w.length > 1) || []
-      if (terms.length) {
-        source = events.filter(ev => {
-          const haystack = [ev.name, ev.description, ev.venue, ev.category, ...(ev.tags || [])]
-            .map(s => (s || '').toLowerCase())
-            .join(' ')
-          return terms.some(t => haystack.includes(t))
-        })
-      }
-    }
+    const source = searchResults ?? events
 
     return source.filter((ev) => {
       if (filters.category.length && !filters.category.includes(ev.category)) return false
@@ -88,7 +76,7 @@ export default function App() {
       if (filters.dateTo && ev.date > filters.dateTo) return false
       return true
     })
-  }, [events, searchResults, searchInput, filters])
+  }, [events, searchResults, filters])
 
   // Reset to page 1 whenever results or page size change
   useEffect(() => { setPage(1) }, [searchInput, filters, pageSize, searchResults])
@@ -140,7 +128,7 @@ export default function App() {
                       {filteredEvents.length === 1 ? 'event' : 'events'} found
                       {searchMeta && (
                         <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6, fontSize: '0.82rem' }}>
-                          {searchMeta.llmUsed ? '(AI-powered)' : '(keyword match)'}
+                          (AI search)
                         </span>
                       )}
                     </>
