@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 const MONTHS = ['January','February','March','April','May','June',
                  'July','August','September','October','November','December']
@@ -26,6 +26,16 @@ export default function DateRangePicker({ dateFrom, dateTo, onChange }) {
     }
     return new Date(today.getFullYear(), today.getMonth(), 1)
   })
+
+  // Navigate calendar when an external change sets dateFrom (e.g. AI search)
+  useEffect(() => {
+    if (!dateFrom) return
+    const [y, mo] = dateFrom.split('-').map(Number)
+    setView(prev => {
+      if (prev.getFullYear() === y && prev.getMonth() === mo - 1) return prev
+      return new Date(y, mo - 1, 1)
+    })
+  }, [dateFrom])
 
   const year  = view.getFullYear()
   const month = view.getMonth()

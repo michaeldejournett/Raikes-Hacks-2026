@@ -4,7 +4,7 @@ import { api } from '../api'
 import NotificationBell from './NotificationBell'
 import MyGroupsMenu from './MyGroupsMenu'
 
-export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, onLogoClick, user, onUserChange, onNavigateToEvent }) {
+export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, onLogoClick, user, onUserChange, onNavigateToEvent, aiSearch, onAiToggle }) {
   const [showTagline, setShowTagline] = useState(false)
   const navbarRef = useRef(null)
   const searchRef = useRef(null)
@@ -81,12 +81,19 @@ export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, on
         <input
           ref={searchInputRef}
           type="search"
-          placeholder="Search events…"
+          placeholder={aiSearch ? 'AI search — press Enter…' : 'Search events…'}
           value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
+          onChange={(e) => onSearchChange(e.target.value, aiSearch)}
           onKeyDown={(e) => e.key === 'Enter' && onSearchSubmit?.()}
           aria-label="Search events"
         />
+        <button
+          className={`search-mode-toggle ${aiSearch ? 'active' : ''}`}
+          onClick={() => onAiToggle?.(!aiSearch)}
+          title={aiSearch ? 'Switch to keyword search' : 'Switch to AI search'}
+        >
+          ✨ AI
+        </button>
       </div>
 
       <span

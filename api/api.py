@@ -20,14 +20,20 @@ from search import (
     expand_with_gemini,
     extract_date_range,
     filter_by_date,
+    filter_by_time,
     load_events,
     search,
 )
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 log = logging.getLogger(__name__)
 
 EVENTS_FILE = os.environ.get("EVENTS_FILE", "scraped/events.json")
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemma-3-12b-it")
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemma-3-27b-it")
 SCRAPE_INTERVAL = int(os.environ.get("SCRAPE_INTERVAL", "3600"))
 SCRAPE_WORKERS = int(os.environ.get("SCRAPE_WORKERS", "10"))
 
@@ -92,14 +98,8 @@ async def _periodic_scrape() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _events
-    # Warm cache from disk so the API is immediately usable while the first scrape runs
-    if os.path.exists(EVENTS_FILE):
-        try:
-            _events = load_events(EVENTS_FILE)
-            print(f"Warm cache: {len(_events)} events from {EVENTS_FILE}")
-        except Exception as exc:
-            print(f"Could not load warm cache: {exc}")
+    # Scrape immediately, then repeat every SCRAPE_INTERVAL seconds.
+    # /health returns 503 while _events is empty so Railway retries until ready.
     task = asyncio.create_task(_periodic_scrape())
     yield
     task.cancel()
@@ -119,13 +119,16 @@ app = FastAPI(
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
+    payload = {
+        "status": "ok" if _events else "starting",
         "events_loaded": len(_events),
         "last_scraped": _last_scraped.isoformat() if _last_scraped else None,
         "scrape_running": _scrape_running,
         "scrape_interval_seconds": SCRAPE_INTERVAL,
     }
+    if not _events:
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 @app.get("/events")
@@ -154,27 +157,88 @@ def search_events(
     model: str = Query(DEFAULT_MODEL, description="Ollama model for keyword expansion"),
     no_llm: bool = Query(False, description="Skip Ollama expansion"),
 ):
-    terms = base_terms(q)
+    base = base_terms(q)
+    terms = list(base)
     llm_used = False
 
+    log.info("SEARCH query=%r  base_terms=%s", q, base)
+
     llm_date_range = None
+    llm_time_range = None
     if not no_llm:
-        llm_keywords, llm_date_range = expand_with_gemini(q, model)
+        llm_keywords, llm_date_range, llm_time_range = expand_with_gemini(q, model)
         if llm_keywords:
             llm_keywords = [k for k in llm_keywords if k not in STOP_WORDS and len(k) > 1]
             seen = set(terms)
+            added = []
             for kw in llm_keywords:
                 if kw not in seen:
                     terms.append(kw)
                     seen.add(kw)
+                    added.append(kw)
             llm_used = True
+            log.info("  LLM expansion  model=%s  added=%s", model, added)
+            if llm_date_range:
+                log.info("  LLM date_range %s → %s", llm_date_range[0], llm_date_range[1])
+            if llm_time_range:
+                log.info("  LLM time_range %s → %s", llm_time_range[0], llm_time_range[1])
+        else:
+            log.warning("  LLM expansion failed or returned no keywords — using base terms only")
 
-    if not terms:
-        return JSONResponse(status_code=400, content={"error": "No usable search terms in query."})
+    log.info("  final_terms=%s", terms)
 
     date_range = llm_date_range or extract_date_range(q)
-    pool = filter_by_date(_events, date_range) if date_range else _events
+    time_range = llm_time_range
+
+    if not terms and not date_range and not time_range:
+        return JSONResponse(status_code=400, content={"error": "No usable search terms in query."})
+
+    pool = _events
+    if date_range:
+        pool = filter_by_date(pool, date_range, time_range)
+    elif time_range:
+        pool = filter_by_time(pool, time_range)
+
+    log.info("  date_filter=%s  time_filter=%s  pool=%d events",
+             f"{date_range[0]} → {date_range[1]}" if date_range else "none",
+             f"{time_range[0]} → {time_range[1]}" if time_range else "none",
+             len(pool))
+
+    # If no keyword terms, return entire filtered pool (pure date/time query)
+    if not terms:
+        log.info("  no terms — returning full filtered pool (%d events)", len(pool))
+        result_events = pool[:top]
+        return {
+            "query": q,
+            "terms": [],
+            "llm_used": llm_used,
+            "date_range": (
+                {"start": str(date_range[0]), "end": str(date_range[1])}
+                if date_range else None
+            ),
+            "time_range": (
+                {"start": str(time_range[0]) if time_range[0] else None,
+                 "end":   str(time_range[1]) if time_range[1] else None}
+                if time_range else None
+            ),
+            "total_searched": len(pool),
+            "count": len(result_events),
+            "results": [
+                {
+                    "score": 0,
+                    "url": e["url"],
+                    "title": e["title"],
+                    "start": e.get("start"),
+                    "location": e.get("location"),
+                    "group": e.get("group"),
+                    "image_url": e.get("image_url"),
+                }
+                for e in result_events
+            ],
+        }
+
     results = search(pool, terms, top)
+    log.info("  results=%d", len(results))
 
     return {
         "query": q,
@@ -183,6 +247,11 @@ def search_events(
         "date_range": (
             {"start": str(date_range[0]), "end": str(date_range[1])}
             if date_range else None
+        ),
+        "time_range": (
+            {"start": str(time_range[0]) if time_range[0] else None,
+             "end":   str(time_range[1]) if time_range[1] else None}
+            if time_range else None
         ),
         "total_searched": len(pool),
         "count": len(results),

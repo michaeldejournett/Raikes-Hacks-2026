@@ -6,7 +6,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -15,7 +15,7 @@ from google import genai
 EVENTS_FILE = "scraped/events.json"
 DEFAULT_TOP_N = 10
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemma-3-12b-it")
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemma-3-27b-it")
 
 FIELD_WEIGHTS = {
     "title":       4,
@@ -32,6 +32,9 @@ STOP_WORDS = {
     "event", "any", "some", "what", "show", "get", "can", "will", "like",
     "go", "going", "around", "near", "about", "up", "out", "next", "this",
     "weekend", "today", "tomorrow", "tonight", "week",
+    # time-of-day words — these should become time filters, not keywords
+    "morning", "afternoon", "evening", "night", "midnight", "noon",
+    "late", "early", "pm", "am", "oclock",
 }
 
 EXPAND_PROMPT = """Today is {now} ({weekday}).
@@ -39,23 +42,44 @@ EXPAND_PROMPT = """Today is {now} ({weekday}).
 You are helping search a university event database. Given a query, do two things:
 
 1. KEYWORD EXPANSION: Extract the core topics and expand each general term into specific concrete examples.
+   - Do not expand on time words (e.g. "tonight", "weekend", "six o'clock", "6:00") or stop words (e.g. "looking", "events")
    - Include the original term AND its specific instances (e.g. "food" → ["food", "pasta", "pizza", "tacos", "burger", "salad", "BBQ", "sushi"])
    - Include synonyms, related activities, and subcategories (e.g. "music" → ["music", "concert", "jazz", "rock", "band", "choir", "orchestra", "recital"])
    - Include relevant people/roles (e.g. "volunteer" → ["volunteer", "service", "community", "outreach", "nonprofit"])
    - Keep all keywords lowercase, single words or short phrases
+   - Produce a comprehensive list ensuring broad coverage of potential matches, but avoid irrelevant terms
+   - Try to produce at least 50 key words for a general query, fewer for a specific query
 
-2. DATE EXTRACTION: Resolve any relative date references using today's date.
-   - "today" → today's date
-   - "tomorrow" → tomorrow's date
-   - "this weekend" → nearest Saturday and Sunday
-   - "next week" → next Monday through Sunday
-   - "two weeks from now" → date 14 days from today
+2. DATE EXTRACTION: Resolve any relative date references using today's date. Always use YYYY-MM-DD format (e.g. 2026-04-01). Do NOT use formats like 4/1/2026, April 1, or MM-DD-YYYY. Always interpret period references as FULL ranges, not single days.
+   - "today" / "tonight" → just today's date (date_from = date_to = today)
+   - "tomorrow" → just tomorrow's date (date_from = date_to = tomorrow)
+   - "this week" → today through the coming Sunday (inclusive)
+   - "next week" → next Monday through next Sunday (full 7-day week)
+   - "this weekend" → nearest Saturday AND Sunday (date_from = Sat, date_to = Sun)
+   - "next weekend" → the Saturday and Sunday after next (date_from = Sat, date_to = Sun)
+   - "this month" → today through the last day of the current month
+   - "next month" → first day of next month through the last day of next month (full month)
+   - "in april" / "during april" → April 1 through April 30 of the relevant year
+   - "two weeks from now" → today through 14 days from today
+   - "soon" / "upcoming" → today through 7 days from today
+   - IMPORTANT: Default to broad ranges. Only use a single day (date_from = date_to) when the user specifies an exact date or says "exactly" / "on that day"
    - If no date is mentioned, return null for both date fields
+   - Do not include time words inside of key words (e.g. "tonight" should not be a keyword, only a date reference)
+
+3. TIME EXTRACTION: Resolve time-of-day references into 24h HH:MM bounds.
+   - "morning" → time_from: "06:00", time_to: "12:00"
+   - "afternoon" → time_from: "12:00", time_to: "17:00"
+   - "evening" / "tonight" → time_from: "17:00", time_to: "21:00"
+   - "night" / "late night" → time_from: "21:00", time_to: null
+   - "after 6pm" / "after 18:00" → time_from: "18:00", time_to: null
+   - "before noon" / "before 12pm" → time_from: null, time_to: "12:00"
+   - specific time like "at 3pm" → time_from: "15:00", time_to: "16:00"
+   - If no time is mentioned, return null for both time fields
 
 Return ONLY a JSON object with no extra text.
 
 Query: "{query}"
-JSON: {{"keywords": ["keyword1", "keyword2", ...], "date_from": "YYYY-MM-DD or null", "date_to": "YYYY-MM-DD or null"}}"""
+JSON: {{"keywords": ["keyword1", "keyword2", ...], "date_from": "YYYY-MM-DD or null (REQUIRED: use this format, e.g. 2026-04-01)", "date_to": "YYYY-MM-DD or null (REQUIRED: use this format, e.g. 2026-04-30)", "time_from": "HH:MM or null (24-hour, e.g. 09:00)", "time_to": "HH:MM or null (24-hour, e.g. 17:00)"}}"""
 
 
 def load_events(path: str) -> List[Dict[str, Any]]:
@@ -69,11 +93,11 @@ def base_terms(query: str) -> List[str]:
     return [w for w in words if w not in STOP_WORDS and len(w) > 1]
 
 
-def expand_with_gemini(query: str, model: str) -> Tuple[Optional[List[str]], Optional[Tuple[date, date]]]:
-    """Call Gemini API to extract/expand keywords and resolve date references.
-    Returns (keywords, date_range) — either can be None if unavailable."""
+def expand_with_gemini(query: str, model: str) -> Tuple[Optional[List[str]], Optional[Tuple[date, date]], Optional[Tuple[Optional[time], Optional[time]]]]:
+    """Call Gemini API to extract/expand keywords and resolve date/time references.
+    Returns (keywords, date_range, time_range) — any can be None if unavailable."""
     if not GEMINI_API_KEY:
-        return None, None
+        return None, None, None
     try:
         now = datetime.now()
         prompt = EXPAND_PROMPT.format(
@@ -85,9 +109,10 @@ def expand_with_gemini(query: str, model: str) -> Tuple[Optional[List[str]], Opt
         response = client.models.generate_content(
             model=model,
             contents=prompt,
-            config={"response_mime_type": "application/json"},
         )
-        data = json.loads(response.text.strip())
+        # Strip markdown code fences if model wraps response
+        text = response.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        data = json.loads(text)
         keywords = [str(k).lower() for k in (data.get("keywords") or []) if k]
 
         date_range = None
@@ -101,9 +126,22 @@ def expand_with_gemini(query: str, model: str) -> Tuple[Optional[List[str]], Opt
             except ValueError:
                 pass
 
-        return keywords, date_range
-    except Exception:
-        return None, None
+        time_range = None
+        tf = data.get("time_from")
+        tt = data.get("time_to")
+        if (tf and tf != "null") or (tt and tt != "null"):
+            try:
+                t_start = time.fromisoformat(str(tf)) if tf and tf != "null" else None
+                t_end   = time.fromisoformat(str(tt)) if tt and tt != "null" else None
+                time_range = (t_start, t_end)
+            except ValueError:
+                pass
+
+        return keywords, date_range, time_range
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("expand_with_gemini failed: %s", exc)
+        return None, None, None
 
 
 def extract_date_range(query: str) -> Optional[Tuple[date, date]]:
@@ -140,16 +178,46 @@ def extract_date_range(query: str) -> Optional[Tuple[date, date]]:
 def filter_by_date(
     events: List[Dict[str, Any]],
     date_range: Tuple[date, date],
+    time_range: Optional[Tuple[Optional[time], Optional[time]]] = None,
 ) -> List[Dict[str, Any]]:
     start_d, end_d = date_range
+    t_start, t_end = time_range if time_range else (None, None)
     out = []
     for e in events:
-        raw = (e.get("start") or "")[:19]
+        raw = (e.get("start") or "")
         if not raw:
             continue
         try:
-            if start_d <= datetime.fromisoformat(raw).date() <= end_d:
-                out.append(e)
+            dt = datetime.fromisoformat(raw[:25])
+            if not (start_d <= dt.date() <= end_d):
+                continue
+            if t_start is not None and dt.time() < t_start:
+                continue
+            if t_end is not None and dt.time() > t_end:
+                continue
+            out.append(e)
+        except ValueError:
+            continue
+    return out
+
+
+def filter_by_time(
+    events: List[Dict[str, Any]],
+    time_range: Tuple[Optional[time], Optional[time]],
+) -> List[Dict[str, Any]]:
+    t_start, t_end = time_range
+    out = []
+    for e in events:
+        raw = (e.get("start") or "")
+        if not raw:
+            continue
+        try:
+            dt = datetime.fromisoformat(raw[:25])
+            if t_start is not None and dt.time() < t_start:
+                continue
+            if t_end is not None and dt.time() > t_end:
+                continue
+            out.append(e)
         except ValueError:
             continue
     return out
@@ -201,14 +269,17 @@ def main() -> int:
     terms = base_terms(query)
 
     llm_date_range = None
+    llm_time_range = None
     if not args.no_llm:
         print(f"Expanding with Gemini ({args.model}) …", file=sys.stderr)
-        llm_keywords, llm_date_range = expand_with_gemini(query, args.model)
+        llm_keywords, llm_date_range, llm_time_range = expand_with_gemini(query, args.model)
         if llm_keywords:
             llm_keywords = [k for k in llm_keywords if k not in STOP_WORDS and len(k) > 1]
             print(f"  LLM keywords : {llm_keywords}", file=sys.stderr)
             if llm_date_range:
                 print(f"  LLM dates    : {llm_date_range[0]} → {llm_date_range[1]}", file=sys.stderr)
+            if llm_time_range:
+                print(f"  LLM times    : {llm_time_range[0]} → {llm_time_range[1]}", file=sys.stderr)
             seen = set(terms)
             for kw in llm_keywords:
                 if kw not in seen:
@@ -225,9 +296,12 @@ def main() -> int:
 
     events = load_events(args.events)
     date_range = llm_date_range or extract_date_range(query)
+    time_range = llm_time_range
     if date_range:
         print(f"Date filter    : {date_range[0]} → {date_range[1]}", file=sys.stderr)
-        events = filter_by_date(events, date_range)
+        if time_range:
+            print(f"Time filter    : {time_range[0]} → {time_range[1]}", file=sys.stderr)
+        events = filter_by_date(events, date_range, time_range)
         print(f"Events in range: {len(events)}", file=sys.stderr)
 
     results = search(events, terms, args.top)

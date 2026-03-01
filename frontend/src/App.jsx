@@ -12,6 +12,31 @@ const DEFAULT_FILTERS = {
   location: '',
 }
 
+function formatShortDate(ymd) {
+  if (!ymd) return ''
+  const [y, m, d] = String(ymd).split('-').map(Number)
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${months[m - 1] || ''} ${d}, ${y}`
+}
+
+// Extract YYYY-MM-DD for consistent comparison (handles ISO timestamps)
+function toYmd(v) {
+  if (!v) return ''
+  const s = String(v)
+  return s.length >= 10 ? s.slice(0, 10) : s
+}
+
+// Event overlaps date range [dateFrom, dateTo] inclusive
+function eventInDateRange(ev, dateFrom, dateTo) {
+  if (!dateFrom && !dateTo) return true
+  const evStart = toYmd(ev.date)
+  const evEnd = toYmd(ev.endDate || ev.date)
+  if (!evStart) return false
+  if (dateFrom && evEnd < dateFrom) return false  // event ends before range
+  if (dateTo && evStart > dateTo) return false    // event starts after range
+  return true
+}
+
 export default function App() {
   const [searchInput, setSearchInput]     = useState('')
   const [filters, setFilters]             = useState(DEFAULT_FILTERS)
@@ -24,16 +49,27 @@ export default function App() {
   const [page, setPage]                   = useState(1)
   const [pageSize, setPageSize]           = useState(20)
   const [user, setUser]                   = useState(null)
+  const [aiSearch, setAiSearch]           = useState(true)
 
   const debounceRef = useRef(null)
 
-  const doSearch = useCallback(async (q) => {
+  const doSearch = useCallback(async (q, useAi) => {
     if (!q) { setSearchResults(null); setSearchMeta(null); return }
     setSearching(true)
     try {
-      const data = await api.searchEvents(q)
+      const data = await api.searchEvents(q, { noLlm: !useAi })
       setSearchResults(data.results)
-      setSearchMeta({ terms: data.terms, llmUsed: data.llmUsed, count: data.count })
+      setSearchMeta({
+        terms: data.terms,
+        llmUsed: data.llmUsed,
+        count: data.count,
+        dateRange: data.date_range || null,
+        timeRange: data.time_range || null,
+      })
+      // Reflect AI-applied date filter in the sidebar date picker
+      if (data.date_range) {
+        setFilters(f => ({ ...f, dateFrom: data.date_range.start, dateTo: data.date_range.end }))
+      }
     } catch (err) {
       console.error('Search failed:', err)
       setSearchResults(null)
@@ -43,17 +79,29 @@ export default function App() {
     }
   }, [])
 
-  const handleSearchChange = (value) => {
+  const handleSearchChange = (value, currentAiSearch = aiSearch) => {
     setSearchInput(value)
     clearTimeout(debounceRef.current)
-    if (!value.trim()) { setSearchResults(null); setSearchMeta(null); return }
-    debounceRef.current = setTimeout(() => doSearch(value.trim()), 500)
+    if (!value.trim()) { setSearchResults(null); setSearchMeta(null); setFilters(DEFAULT_FILTERS); return }
+    // AI mode: wait for explicit submit (Enter), regular mode: debounce on type
+    if (!currentAiSearch) {
+      debounceRef.current = setTimeout(() => doSearch(value.trim(), false), 500)
+    }
   }
 
   const handleSearchSubmit = useCallback(() => {
     clearTimeout(debounceRef.current)
-    doSearch(searchInput.trim())
-  }, [searchInput, doSearch])
+    doSearch(searchInput.trim(), aiSearch)
+  }, [searchInput, doSearch, aiSearch])
+
+  const handleAiToggle = (value) => {
+    setAiSearch(value)
+    // If switching to regular and there's a query, re-run immediately without AI
+    if (!value && searchInput.trim()) {
+      clearTimeout(debounceRef.current)
+      doSearch(searchInput.trim(), false)
+    }
+  }
 
   const loadEvents = async () => {
     try {
@@ -82,14 +130,20 @@ export default function App() {
 
   const filteredEvents = useMemo(() => {
     const source = searchResults ?? events
+    // When showing search results, use searchMeta.dateRange as authoritative (from AI) so we don't rely on filters state
+    const dateFrom = searchResults && searchMeta?.dateRange ? searchMeta.dateRange.start : filters.dateFrom
+    const dateTo = searchResults && searchMeta?.dateRange ? searchMeta.dateRange.end : filters.dateTo
+    const timeFrom = searchResults ? (searchMeta?.timeRange?.start || null) : null
+    const timeTo   = searchResults ? (searchMeta?.timeRange?.end   || null) : null
 
     return source.filter((ev) => {
       if (filters.category.length && !filters.category.includes(ev.category)) return false
-      if (filters.dateFrom && ev.date < filters.dateFrom) return false
-      if (filters.dateTo && ev.date > filters.dateTo) return false
+      if (!eventInDateRange(ev, dateFrom, dateTo)) return false
+      if (timeFrom && ev.time && ev.time < timeFrom) return false
+      if (timeTo   && ev.time && ev.time > timeTo)   return false
       return true
     })
-  }, [events, searchResults, filters])
+  }, [events, searchResults, filters, searchMeta])
 
   useEffect(() => { setPage(1) }, [searchInput, filters, pageSize, searchResults])
 
@@ -120,6 +174,8 @@ export default function App() {
         user={user}
         onUserChange={setUser}
         onNavigateToEvent={handleNavigateToEvent}
+        aiSearch={aiSearch}
+        onAiToggle={handleAiToggle}
       />
 
       <main className="page">
@@ -143,19 +199,48 @@ export default function App() {
               <div className="events-header">
                 <p className="events-count">
                   {isLoading ? (
-                    searching ? 'Searching…' : 'Loading events…'
+                    searching
+                      ? (aiSearch ? '✨ AI is thinking…' : 'Searching…')
+                      : 'Loading events…'
                   ) : (
                     <>
                       <strong>{filteredEvents.length}</strong>{' '}
                       {filteredEvents.length === 1 ? 'event' : 'events'} found
-                      {searchMeta && (
-                        <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6, fontSize: '0.82rem' }}>
-                          (AI search)
-                        </span>
-                      )}
                     </>
                   )}
                 </p>
+                {!isLoading && searchMeta && (
+                  <details className="search-debug">
+                    <summary>
+                      {searchMeta.llmUsed ? '✨ AI search' : '🔍 Keyword search'}
+                      {searchMeta.dateRange && (
+                        <> · {formatShortDate(searchMeta.dateRange.start)} – {formatShortDate(searchMeta.dateRange.end)}</>
+                      )}
+                      {searchMeta.timeRange && (
+                        <> · {searchMeta.timeRange.start ?? '?'}–{searchMeta.timeRange.end ?? '?'}</>
+                      )}
+                      <span style={{ opacity: 0.6, marginLeft: 4 }}>▾</span>
+                    </summary>
+                    <div className="search-debug-body">
+                      <div><span className="sdl">LLM used</span> {searchMeta.llmUsed ? 'yes' : 'no (fallback)'}</div>
+                      <div><span className="sdl">Terms ({searchMeta.terms?.length ?? 0})</span>
+                        <span style={{ wordBreak: 'break-word' }}>
+                          {searchMeta.terms?.length ? searchMeta.terms.join(', ') : '(none)'}
+                        </span>
+                      </div>
+                      <div><span className="sdl">Date filter</span>
+                        {searchMeta.dateRange
+                          ? `${searchMeta.dateRange.start} → ${searchMeta.dateRange.end}`
+                          : 'none'}
+                      </div>
+                      <div><span className="sdl">Time filter</span>
+                        {searchMeta.timeRange
+                          ? `${searchMeta.timeRange.start ?? 'any'} → ${searchMeta.timeRange.end ?? 'any'}`
+                          : 'none'}
+                      </div>
+                    </div>
+                  </details>
+                )}
               </div>
 
               <div className="event-grid">

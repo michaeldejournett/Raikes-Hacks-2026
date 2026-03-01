@@ -17,8 +17,8 @@ export const api = {
   // Events
   getEvents: () => request('/api/events'),
   getEvent: (id) => request(`/api/events/${id}`),
-  searchEvents: (q) =>
-    request(`/api/events/search?${new URLSearchParams({ q })}`),
+  searchEvents: (q, { noLlm = false } = {}) =>
+    request(`/api/events/search?${new URLSearchParams({ q, ...(noLlm && { no_llm: 'true' }) })}`),
 
   // Groups
   getMyGroups: () => request('/api/groups/mine'),

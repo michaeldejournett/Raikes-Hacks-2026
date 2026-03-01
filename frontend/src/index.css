@@ -84,7 +84,7 @@ body {
 
 .navbar-search input {
   width: 100%;
-  padding: 10px 16px 10px 42px;
+  padding: 10px 72px 10px 42px;
   border: 1.5px solid var(--border);
   border-radius: 999px;
   font-size: 0.9rem;
@@ -92,6 +92,32 @@ body {
   color: var(--text);
   outline: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.search-mode-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1.5px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.search-mode-toggle:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.search-mode-toggle.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
 }
 
 .navbar-search input:focus {
@@ -569,9 +595,46 @@ body {
 /* ── Event Grid ──────────────────────────────────── */
 .events-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.search-debug {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.search-debug summary {
+  list-style: none;
+  user-select: none;
+  white-space: nowrap;
+}
+.search-debug summary::-webkit-details-marker { display: none; }
+.search-debug[open] summary span[style] { transform: rotate(180deg); display: inline-block; }
+.search-debug-body {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 480px;
+  font-size: 0.75rem;
+}
+.search-debug-body > div {
+  display: flex;
+  gap: 6px;
+}
+.sdl {
+  font-weight: 600;
+  min-width: 80px;
+  flex-shrink: 0;
+  color: var(--text);
 }
 
 .events-count {
