@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { api } from './api'
+import { getCategoryMeta } from './data/events'
 import Navbar from './components/Navbar'
 import SearchFilters from './components/SearchFilters'
 import EventCard from './components/EventCard'
@@ -128,6 +129,18 @@ export default function App() {
     api.getMe().then(setUser).catch(() => setUser(null))
   }, [])
 
+  const availableCategories = useMemo(() => {
+    const seen = new Set()
+    const cats = []
+    for (const ev of events) {
+      if (ev.category && !seen.has(ev.category)) {
+        seen.add(ev.category)
+        cats.push(getCategoryMeta(ev.category))
+      }
+    }
+    return cats.sort((a, b) => a.label.localeCompare(b.label))
+  }, [events])
+
   const filteredEvents = useMemo(() => {
     const source = searchResults ?? events
     // When showing search results, use searchMeta.dateRange as authoritative (from AI) so we don't rely on filters state
@@ -187,6 +200,7 @@ export default function App() {
               filters={filters}
               onChange={setFilters}
               onReset={() => setFilters(DEFAULT_FILTERS)}
+              categories={availableCategories}
               pageSize={pageSize}
               onPageSizeChange={setPageSize}
               page={page}

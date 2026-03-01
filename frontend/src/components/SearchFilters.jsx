@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import { CATEGORIES } from '../data/events'
 import DateRangePicker from './DateRangePicker'
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50]
 
-export default function SearchFilters({ filters, onChange, onReset, pageSize, onPageSizeChange, page, totalPages, totalCount, onPageChange }) {
+export default function SearchFilters({ filters, onChange, onReset, categories, pageSize, onPageSizeChange, page, totalPages, totalCount, onPageChange }) {
   const [open, setOpen] = useState(() => window.innerWidth > 900)
 
   const set = (key, value) => onChange({ ...filters, [key]: value })
@@ -53,13 +52,13 @@ export default function SearchFilters({ filters, onChange, onReset, pageSize, on
           <div className="filter-group">
             <span className="filter-label">Category</span>
             <div className="category-pills">
-              {CATEGORIES.map((cat) => (
+              {categories.map((cat) => (
                 <button
                   key={cat.id}
                   className={`category-pill ${filters.category.includes(cat.id) ? 'active' : ''}`}
                   onClick={() => toggleCategory(cat.id)}
                 >
-                  {cat.emoji} {cat.label}
+                  {cat.label}
                 </button>
               ))}
             </div>
