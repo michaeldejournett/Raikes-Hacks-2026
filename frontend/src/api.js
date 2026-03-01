@@ -40,6 +40,21 @@ export const api = {
     request(`/api/groups/${groupId}/messages`),
   postMessage: (groupId, body) =>
     request(`/api/groups/${groupId}/messages`, { method: 'POST', body: JSON.stringify({ body }) }),
+  postImage: async (groupId, file, caption = '') => {
+    const form = new FormData()
+    form.append('image', file)
+    if (caption) form.append('body', caption)
+    const res = await fetch(`${API_BASE}/api/groups/${groupId}/messages/image`, {
+      method: 'POST',
+      credentials: 'include',
+      body: form,
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || `API ${res.status}`)
+    }
+    return res.json()
+  },
 
   // Notifications
   getNotifications: () => request('/api/notifications'),
