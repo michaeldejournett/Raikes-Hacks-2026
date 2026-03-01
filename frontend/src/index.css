@@ -393,7 +393,7 @@ body {
 
 .event-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(clamp(240px, 28vw, 320px), 1fr));
+  grid-template-columns: repeat(auto-fill, 300px);
   gap: clamp(12px, 1.5vw, 20px);
 }
 
@@ -419,7 +419,7 @@ body {
   transition: box-shadow var(--transition), transform var(--transition), border-color var(--transition);
   display: flex;
   flex-direction: column;
-  min-height: 280px;
+  height: 420px;
 }
 
 .event-card:hover {
@@ -429,7 +429,7 @@ body {
 }
 
 .event-card-banner {
-  height: 10px;
+  height: 160px;
 }
 
 .event-card-image {
@@ -445,7 +445,6 @@ body {
   display: flex;
   flex-direction: column;
   flex: 1;
-  overflow: hidden;
 }
 
 .event-card-category {
