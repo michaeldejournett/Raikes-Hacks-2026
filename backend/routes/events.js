@@ -122,9 +122,10 @@ router.get('/search', async (req, res) => {
         tags: (ev.tags || []).join(' ').toLowerCase(),
       }
 
-      for (const term of terms) {
+      for (let i = 0; i < terms.length; i++) {
+        const posWeight = terms.length - i  // earlier terms worth more
         for (const [field, text] of Object.entries(fields)) {
-          if (text.includes(term)) score += FIELD_WEIGHTS[field] || 1
+          if (text.includes(terms[i])) score += (FIELD_WEIGHTS[field] || 1) * posWeight
         }
       }
 
