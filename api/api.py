@@ -17,7 +17,7 @@ from scraper import cross_dedupe, enrich_events, scrape_engage, scrape_rss
 from search import (
     STOP_WORDS,
     base_terms,
-    expand_with_ollama,
+    expand_with_gemini,
     extract_date_range,
     filter_by_date,
     load_events,
@@ -27,7 +27,7 @@ from search import (
 log = logging.getLogger(__name__)
 
 EVENTS_FILE = os.environ.get("EVENTS_FILE", "scraped/events.json")
-DEFAULT_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:1b")
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemma-3-12b-it")
 SCRAPE_INTERVAL = int(os.environ.get("SCRAPE_INTERVAL", "3600"))
 SCRAPE_WORKERS = int(os.environ.get("SCRAPE_WORKERS", "10"))
 
@@ -158,7 +158,7 @@ def search_events(
     llm_used = False
 
     if not no_llm:
-        llm_keywords = expand_with_ollama(q, model)
+        llm_keywords = expand_with_gemini(q, model)
         if llm_keywords:
             llm_keywords = [k for k in llm_keywords if k not in STOP_WORDS and len(k) > 1]
             seen = set(terms)

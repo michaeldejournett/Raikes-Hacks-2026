@@ -4,7 +4,7 @@ import db from '../db.js'
 const router = Router()
 
 const FASTAPI_URL = process.env.FASTAPI_URL || 'http://localhost:8080'
-const NO_LLM = process.env.OLLAMA_URL ? 'false' : 'true'  // skip Ollama if not configured
+const NO_LLM = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) ? 'false' : 'true'
 
 const listEvents = db.prepare(`
   SELECT e.*,
