@@ -4,7 +4,6 @@ import db from '../db.js'
 const router = Router()
 
 const FASTAPI_URL = process.env.FASTAPI_URL || 'http://localhost:8080'
-const NO_LLM = (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) ? 'false' : 'true'
 
 const listEvents = db.prepare(`
   SELECT e.*,
@@ -51,9 +50,10 @@ router.get('/search', async (req, res) => {
     let time_range = null
 
     // no_llm from client overrides env default; env default is false when API key is set
-    const noLlm = no_llm === 'true' ? 'true' : NO_LLM
+    const noLlm = no_llm === 'true' ? 'true' : 'false'
 
     let scored = []
+    let fastapiError = null
     try {
       const resp = await fetch(
         `${FASTAPI_URL}/search?${new URLSearchParams({ q, top: '100', no_llm: noLlm })}`,
@@ -75,9 +75,13 @@ router.get('/search', async (req, res) => {
             return fastApiToEvent(r)
           })
         }
+      } else {
+        fastapiError = `HTTP ${resp.status}`
+        console.warn('FastAPI search returned non-ok:', resp.status)
       }
     } catch (err) {
-      console.warn('FastAPI search unavailable — using raw terms:', err?.message || err)
+      fastapiError = err?.message || String(err)
+      console.warn('FastAPI search unavailable — using raw terms:', fastapiError)
     }
 
     if (scored.length === 0) {
@@ -130,7 +134,7 @@ router.get('/search', async (req, res) => {
 
     scored.sort((a, b) => b.score - a.score)
 
-    res.json({ terms, llmUsed, count: scored.length, results: scored, date_range, time_range })
+    res.json({ terms, llmUsed, count: scored.length, results: scored, date_range, time_range, _fastapiUrl: FASTAPI_URL, _fastapiError: fastapiError })
   } catch (err) {
     console.error('GET /api/events/search', err)
     res.status(500).json({ error: 'Search failed' })

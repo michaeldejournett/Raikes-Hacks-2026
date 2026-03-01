@@ -66,6 +66,8 @@ export default function App() {
         count: data.count,
         dateRange: data.date_range || null,
         timeRange: data.time_range || null,
+        fastapiUrl: data._fastapiUrl || null,
+        fastapiError: data._fastapiError || null,
       })
       // Reflect AI-applied date filter in the sidebar date picker
       if (data.date_range) {
@@ -252,6 +254,19 @@ export default function App() {
                           ? `${searchMeta.timeRange.start ?? 'any'} → ${searchMeta.timeRange.end ?? 'any'}`
                           : 'none'}
                       </div>
+                      <div><span className="sdl">FastAPI URL</span>
+                        <span style={{ wordBreak: 'break-all', fontFamily: 'monospace', fontSize: '0.8em' }}>
+                          {searchMeta.fastapiUrl || '(unknown)'}
+                        </span>
+                      </div>
+                      {searchMeta.fastapiError && (
+                        <div style={{ color: 'var(--error, #c0392b)' }}>
+                          <span className="sdl">FastAPI error</span>
+                          <span style={{ wordBreak: 'break-word', fontFamily: 'monospace', fontSize: '0.8em' }}>
+                            {searchMeta.fastapiError}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </details>
                 )}
