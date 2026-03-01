@@ -13,6 +13,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3001
 
+// Trust Railway's reverse proxy so cookies work correctly over HTTPS
+app.set('trust proxy', 1)
+
 const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:5173'
 app.use(cors({ origin: allowedOrigin, credentials: true }))
 app.use(express.json())
@@ -23,7 +26,7 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    sameSite: 'lax',   // lax is correct — frontend and backend share the same domain
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   },
 }))
