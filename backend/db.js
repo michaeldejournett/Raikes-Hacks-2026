@@ -34,6 +34,17 @@ function initDb() {
   `)
 
   db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      google_id TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT,
+      picture TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `)
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS groups (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_id INTEGER REFERENCES events(id) ON DELETE CASCADE,
@@ -45,6 +56,7 @@ function initDb() {
       capacity INTEGER DEFAULT 0,
       meetup_details TEXT DEFAULT '',
       vibe_tags TEXT DEFAULT '[]',
+      creator_id INTEGER REFERENCES users(id),
       created_at TEXT DEFAULT (datetime('now'))
     )
   `)
@@ -54,8 +66,7 @@ function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
       member_name TEXT NOT NULL,
-      email TEXT DEFAULT '',
-      phone TEXT DEFAULT '',
+      user_id INTEGER REFERENCES users(id),
       joined_at TEXT DEFAULT (datetime('now')),
       UNIQUE(group_id, member_name)
     )
@@ -75,10 +86,10 @@ function initDb() {
   for (const col of ['url TEXT', 'image_url TEXT']) {
     try { db.exec(`ALTER TABLE events ADD COLUMN ${col}`) } catch { /* already exists */ }
   }
-  for (const col of ['creator_email TEXT DEFAULT ""', 'creator_phone TEXT DEFAULT ""', 'capacity INTEGER DEFAULT 0', 'meetup_details TEXT DEFAULT ""', 'vibe_tags TEXT DEFAULT "[]"']) {
+  for (const col of ['creator_id INTEGER', 'capacity INTEGER DEFAULT 0', 'meetup_details TEXT DEFAULT ""', 'vibe_tags TEXT DEFAULT "[]"']) {
     try { db.exec(`ALTER TABLE groups ADD COLUMN ${col}`) } catch { /* already exists */ }
   }
-  for (const col of ['email TEXT DEFAULT ""', 'phone TEXT DEFAULT ""']) {
+  for (const col of ['user_id INTEGER']) {
     try { db.exec(`ALTER TABLE group_members ADD COLUMN ${col}`) } catch { /* already exists */ }
   }
 

@@ -5,38 +5,47 @@ const router = Router()
 
 const listByEvent = db.prepare(`SELECT * FROM groups WHERE event_id = ? ORDER BY created_at DESC`)
 const listAll     = db.prepare(`SELECT * FROM groups ORDER BY created_at DESC`)
-const getMembers  = db.prepare(`SELECT id, member_name, email, phone, joined_at FROM group_members WHERE group_id = ? ORDER BY joined_at`)
-const getMember   = db.prepare(`SELECT id FROM group_members WHERE group_id = ? AND member_name = ?`)
+const getMembers  = db.prepare(`SELECT gm.id, gm.member_name, gm.user_id, gm.joined_at, u.email, u.picture FROM group_members gm LEFT JOIN users u ON gm.user_id = u.id WHERE gm.group_id = ? ORDER BY gm.joined_at`)
+const getMemberByUser = db.prepare(`SELECT id FROM group_members WHERE group_id = ? AND user_id = ?`)
 const getGroup    = db.prepare(`SELECT * FROM groups WHERE id = ?`)
+const getExistingGroup = db.prepare(`SELECT id FROM groups WHERE event_id = ? AND creator_id = ?`)
 
 const insertGroup = db.prepare(`
-  INSERT INTO groups (event_id, name, description, creator, creator_email, creator_phone, capacity, meetup_details, vibe_tags)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO groups (event_id, name, description, creator, creator_id, capacity, meetup_details, vibe_tags)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `)
 const insertMember = db.prepare(`
-  INSERT OR IGNORE INTO group_members (group_id, member_name, email, phone) VALUES (?, ?, ?, ?)
+  INSERT OR IGNORE INTO group_members (group_id, member_name, user_id) VALUES (?, ?, ?)
 `)
-const deleteMember = db.prepare(`DELETE FROM group_members WHERE group_id = ? AND member_name = ?`)
+const deleteMember = db.prepare(`DELETE FROM group_members WHERE group_id = ? AND user_id = ?`)
 const deleteGroup  = db.prepare(`DELETE FROM groups WHERE id = ?`)
+const countMembers = db.prepare(`SELECT COUNT(*) AS count FROM group_members WHERE group_id = ?`)
 
 const listMessages  = db.prepare(`SELECT * FROM group_messages WHERE group_id = ? ORDER BY created_at ASC`)
 const insertMessage = db.prepare(`INSERT INTO group_messages (group_id, author, body) VALUES (?, ?, ?)`)
+
+function requireAuth(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Sign in with Google to use groups' })
+  next()
+}
 
 function safeParse(raw, fallback = []) {
   try { return JSON.parse(raw || JSON.stringify(fallback)) } catch { return fallback }
 }
 
-function attachMembers(group, revealContact = false) {
+function attachMembers(group, currentUserId = null) {
   const rows = getMembers.all(group.id)
   const memberCount = rows.length
   const capacity = group.capacity || 0
   const isFull = capacity > 0 && memberCount >= capacity
+  const isOwner = currentUserId != null && group.creator_id === currentUserId
+  const hasJoined = currentUserId != null && rows.some(r => r.user_id === currentUserId)
 
   const members = rows.map(r => {
     const m = { name: r.member_name }
-    if (revealContact) {
+    if (hasJoined || isOwner) {
       m.email = r.email || ''
-      m.phone = r.phone || ''
+      m.picture = r.picture || ''
     }
     return m
   })
@@ -47,8 +56,7 @@ function attachMembers(group, revealContact = false) {
     name: group.name,
     description: group.description,
     creator: group.creator,
-    creatorEmail: revealContact ? (group.creator_email || '') : '',
-    creatorPhone: revealContact ? (group.creator_phone || '') : '',
+    creatorId: group.creator_id,
     capacity,
     memberCount,
     isFull,
@@ -56,94 +64,109 @@ function attachMembers(group, revealContact = false) {
     meetupDetails: group.meetup_details || '',
     vibeTags: safeParse(group.vibe_tags),
     members,
+    isOwner,
+    hasJoined,
     createdAt: group.created_at,
   }
 }
 
 router.get('/', (req, res) => {
   try {
-    const { eventId, viewer } = req.query
+    const { eventId } = req.query
     const rows = eventId ? listByEvent.all(eventId) : listAll.all()
-    res.json(rows.map(g => {
-      const isMember = viewer && (
-        g.creator === viewer ||
-        getMember.get(g.id, viewer)
-      )
-      return attachMembers(g, !!isMember)
-    }))
+    const userId = req.user?.id ?? null
+    res.json(rows.map(g => attachMembers(g, userId)))
   } catch (err) {
     console.error('GET /api/groups', err)
     res.status(500).json({ error: 'Failed to fetch groups' })
   }
 })
 
-router.post('/', (req, res) => {
+router.post('/', requireAuth, (req, res) => {
   try {
-    const { eventId, name, description, creator, email, phone, capacity, meetupDetails, vibeTags } = req.body
-    if (!eventId || !name || !creator) {
-      return res.status(400).json({ error: 'eventId, name, and creator are required' })
+    const { eventId, name, description, capacity, meetupDetails, vibeTags } = req.body
+    if (!eventId || !name) {
+      return res.status(400).json({ error: 'eventId and name are required' })
     }
-    if (!email && !phone) {
-      return res.status(400).json({ error: 'At least one contact method (email or phone) is required' })
+
+    const existing = getExistingGroup.get(eventId, req.user.id)
+    if (existing) {
+      return res.status(409).json({ error: 'You already created a group for this event' })
     }
 
     const cap = Math.max(0, parseInt(capacity) || 0)
     const tags = JSON.stringify(Array.isArray(vibeTags) ? vibeTags : [])
 
     const result = insertGroup.run(
-      eventId, name, description || '', creator,
-      email || '', phone || '', cap, meetupDetails || '', tags
+      eventId, name, description || '', req.user.name, req.user.id,
+      cap, meetupDetails || '', tags
     )
     const groupId = result.lastInsertRowid
-    insertMember.run(groupId, creator, email || '', phone || '')
+    insertMember.run(groupId, req.user.name, req.user.id)
 
     const group = getGroup.get(groupId)
-    res.status(201).json(attachMembers(group, true))
+    res.status(201).json(attachMembers(group, req.user.id))
   } catch (err) {
     console.error('POST /api/groups', err)
     res.status(500).json({ error: 'Failed to create group' })
   }
 })
 
-router.post('/:id/join', (req, res) => {
+router.post('/:id/join', requireAuth, (req, res) => {
   try {
-    const { name, email, phone } = req.body
-    if (!name) return res.status(400).json({ error: 'name is required' })
-    if (!email && !phone) {
-      return res.status(400).json({ error: 'At least one contact method (email or phone) is required' })
-    }
-
     const group = getGroup.get(req.params.id)
     if (!group) return res.status(404).json({ error: 'Group not found' })
 
-    const currentCount = getMembers.all(group.id).length
+    if (group.creator_id === req.user.id) {
+      return res.status(403).json({ error: "You can't join your own group" })
+    }
+
+    const alreadyMember = getMemberByUser.get(group.id, req.user.id)
+    if (alreadyMember) {
+      return res.status(409).json({ error: 'You already joined this group' })
+    }
+
+    const currentCount = countMembers.get(group.id).count
     if (group.capacity > 0 && currentCount >= group.capacity) {
       return res.status(409).json({ error: 'Group is full' })
     }
 
-    insertMember.run(group.id, name, email || '', phone || '')
-    res.json(attachMembers(getGroup.get(group.id), true))
+    insertMember.run(group.id, req.user.name, req.user.id)
+    res.json(attachMembers(getGroup.get(group.id), req.user.id))
   } catch (err) {
     console.error('POST /api/groups/:id/join', err)
     res.status(500).json({ error: 'Failed to join group' })
   }
 })
 
-router.post('/:id/leave', (req, res) => {
+// Owner deletes their group
+router.delete('/:id', requireAuth, (req, res) => {
   try {
-    const { name } = req.body
-    if (!name) return res.status(400).json({ error: 'name is required' })
-
     const group = getGroup.get(req.params.id)
     if (!group) return res.status(404).json({ error: 'Group not found' })
+    if (group.creator_id !== req.user.id) return res.status(403).json({ error: 'Only the group owner can delete it' })
 
-    if (group.creator === name) {
-      deleteGroup.run(group.id)
-      return res.json({ deleted: true })
-    }
+    deleteGroup.run(group.id)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('DELETE /api/groups/:id', err)
+    res.status(500).json({ error: 'Failed to delete group' })
+  }
+})
 
-    deleteMember.run(group.id, name)
-    res.json(attachMembers(getGroup.get(group.id), false))
+// Member leaves a group; auto-deletes if empty
+router.post('/:id/leave', requireAuth, (req, res) => {
+  try {
+    const group = getGroup.get(req.params.id)
+    if (!group) return res.status(404).json({ error: 'Group not found' })
+    if (group.creator_id === req.user.id) return res.status(403).json({ error: 'Owners must delete the group instead of leaving' })
+
+    deleteMember.run(group.id, req.user.id)
+
+    const remaining = countMembers.get(group.id).count
+    if (remaining === 0) deleteGroup.run(group.id)
+
+    res.json({ ok: true, deleted: remaining === 0 })
   } catch (err) {
     console.error('POST /api/groups/:id/leave', err)
     res.status(500).json({ error: 'Failed to leave group' })
@@ -153,14 +176,10 @@ router.post('/:id/leave', (req, res) => {
 // Single group by ID (for share links)
 router.get('/:id', (req, res) => {
   try {
-    const { viewer } = req.query
     const group = getGroup.get(req.params.id)
     if (!group) return res.status(404).json({ error: 'Group not found' })
-
-    const isMember = viewer && (
-      group.creator === viewer || getMember.get(group.id, viewer)
-    )
-    res.json(attachMembers(group, !!isMember))
+    const userId = req.user?.id ?? null
+    res.json(attachMembers(group, userId))
   } catch (err) {
     console.error('GET /api/groups/:id', err)
     res.status(500).json({ error: 'Failed to fetch group' })
@@ -186,17 +205,17 @@ router.get('/:id/messages', (req, res) => {
   }
 })
 
-router.post('/:id/messages', (req, res) => {
+router.post('/:id/messages', requireAuth, (req, res) => {
   try {
-    const { author, body } = req.body
-    if (!author || !body?.trim()) {
-      return res.status(400).json({ error: 'author and body are required' })
+    const { body } = req.body
+    if (!body?.trim()) {
+      return res.status(400).json({ error: 'body is required' })
     }
 
     const group = getGroup.get(req.params.id)
     if (!group) return res.status(404).json({ error: 'Group not found' })
 
-    insertMessage.run(group.id, author, body.trim())
+    insertMessage.run(group.id, req.user.name, body.trim())
 
     const rows = listMessages.all(group.id)
     res.status(201).json(rows.map(r => ({

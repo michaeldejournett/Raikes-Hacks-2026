@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../api'
 
-export default function GroupMessageBoard({ groupId, myName }) {
+export default function GroupMessageBoard({ groupId, userName }) {
   const [messages, setMessages] = useState([])
   const [draft, setDraft]       = useState('')
   const [sending, setSending]   = useState(false)
@@ -24,10 +24,10 @@ export default function GroupMessageBoard({ groupId, myName }) {
 
   const handleSend = async (e) => {
     e.preventDefault()
-    if (!draft.trim() || !myName || sending) return
+    if (!draft.trim() || !userName || sending) return
     setSending(true)
     try {
-      const updated = await api.postMessage(groupId, myName, draft.trim())
+      const updated = await api.postMessage(groupId, draft.trim())
       setMessages(updated)
       setDraft('')
     } catch (err) {
@@ -50,7 +50,7 @@ export default function GroupMessageBoard({ groupId, myName }) {
           <p className="msg-empty">No messages yet — say hi!</p>
         ) : (
           messages.map((msg) => {
-            const isMe = msg.author === myName
+            const isMe = msg.author === userName
             return (
               <div key={msg.id} className={`msg ${isMe ? 'msg-mine' : ''}`}>
                 <div className="msg-header">
@@ -65,7 +65,7 @@ export default function GroupMessageBoard({ groupId, myName }) {
         <div ref={bottomRef} />
       </div>
 
-      {myName ? (
+      {userName ? (
         <form className="msg-input-row" onSubmit={handleSend}>
           <input
             className="form-input msg-input"

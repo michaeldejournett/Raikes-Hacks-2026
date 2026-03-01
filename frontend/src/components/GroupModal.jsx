@@ -5,12 +5,9 @@ const VIBE_OPTIONS = [
   'competitive', 'casual', 'study group', 'pregame',
 ]
 
-export default function GroupModal({ mode, group, eventName, onConfirm, onClose }) {
+export default function GroupModal({ mode, group, eventName, userName, error, onConfirm, onClose }) {
   const isCreate = mode === 'create'
 
-  const [yourName, setYourName]           = useState('')
-  const [email, setEmail]                 = useState('')
-  const [phone, setPhone]                 = useState('')
   const [groupName, setGroupName]         = useState('')
   const [description, setDescription]     = useState('')
   const [capacity, setCapacity]           = useState('')
@@ -21,17 +18,10 @@ export default function GroupModal({ mode, group, eventName, onConfirm, onClose 
     setVibeTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])
   }
 
-  const hasContact = email.trim() || phone.trim()
-
   const handleSubmit = (e) => {
     e.preventDefault()
-    if (!yourName.trim() || !hasContact) return
     if (isCreate && !groupName.trim()) return
-
     onConfirm({
-      yourName: yourName.trim(),
-      email: email.trim(),
-      phone: phone.trim(),
       groupName: isCreate ? groupName.trim() : group.name,
       description: isCreate ? description.trim() : '',
       capacity: isCreate ? (parseInt(capacity) || 0) : undefined,
@@ -52,67 +42,27 @@ export default function GroupModal({ mode, group, eventName, onConfirm, onClose 
             : `Let the group know you're coming to "${eventName}"`}
         </p>
 
+        <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: 16 }}>
+          Joining as <strong>{userName}</strong>
+        </p>
+
         <form onSubmit={handleSubmit}>
           {isCreate && (
-            <div className="form-group">
-              <label className="form-label" htmlFor="group-name">Group Name *</label>
-              <input
-                id="group-name"
-                className="form-input"
-                type="text"
-                placeholder="e.g. Raikes Table, Friday Squad…"
-                value={groupName}
-                onChange={(e) => setGroupName(e.target.value)}
-                required
-                autoFocus
-              />
-            </div>
-          )}
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="your-name">Your Name *</label>
-            <input
-              id="your-name"
-              className="form-input"
-              type="text"
-              placeholder="How should we call you?"
-              value={yourName}
-              onChange={(e) => setYourName(e.target.value)}
-              required
-              autoFocus={!isCreate}
-            />
-          </div>
-
-          <div className="form-row">
-            <div className="form-group form-group-half">
-              <label className="form-label" htmlFor="email">Email</label>
-              <input
-                id="email"
-                className="form-input"
-                type="email"
-                placeholder="you@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div className="form-group form-group-half">
-              <label className="form-label" htmlFor="phone">Phone</label>
-              <input
-                id="phone"
-                className="form-input"
-                type="tel"
-                placeholder="(555) 123-4567"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-              />
-            </div>
-          </div>
-          {!hasContact && (yourName.trim() || email || phone) && (
-            <p className="form-hint form-hint-warn">At least one contact method required</p>
-          )}
-
-          {isCreate && (
             <>
+              <div className="form-group">
+                <label className="form-label" htmlFor="group-name">Group Name *</label>
+                <input
+                  id="group-name"
+                  className="form-input"
+                  type="text"
+                  placeholder="e.g. Raikes Table, Friday Squad…"
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </div>
+
               <div className="form-group">
                 <label className="form-label" htmlFor="group-desc">Description (optional)</label>
                 <textarea
@@ -170,6 +120,12 @@ export default function GroupModal({ mode, group, eventName, onConfirm, onClose 
             </>
           )}
 
+          {error && (
+            <p style={{ color: 'var(--danger, #e53e3e)', fontSize: '0.88rem', marginBottom: 12 }}>
+              {error}
+            </p>
+          )}
+
           <div className="modal-footer">
             <button type="button" className="btn btn-ghost" onClick={onClose}>
               Cancel
@@ -177,7 +133,7 @@ export default function GroupModal({ mode, group, eventName, onConfirm, onClose 
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={!yourName.trim() || !hasContact || (isCreate && !groupName.trim())}
+              disabled={isCreate && !groupName.trim()}
             >
               {isCreate ? 'Create Group' : 'Join Group'}
             </button>

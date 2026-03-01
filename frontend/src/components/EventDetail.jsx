@@ -19,76 +19,71 @@ function formatTime(timeStr) {
   return `${hour}:${String(m).padStart(2, '0')} ${ampm} CT`
 }
 
-export default function EventDetail({ event, onBack }) {
+export default function EventDetail({ event, onBack, user }) {
   const cat = getCategoryMeta(event.category)
 
-  const [modal, setModal]           = useState(null)
-  const [myName, setMyName]         = useState(() => sessionStorage.getItem('curia_name') || '')
-  const [groups, setGroups]         = useState([])
+  const [modal, setModal]               = useState(null)
+  const [groups, setGroups]             = useState([])
   const [loadingGroups, setLoadingGroups] = useState(true)
-  const [expandedChat, setExpandedChat]   = useState(null)
-  const [copiedId, setCopiedId]           = useState(null)
+  const [groupError, setGroupError]     = useState('')
+  const [expandedChat, setExpandedChat] = useState(null)
+  const [copiedId, setCopiedId]         = useState(null)
 
   const loadGroups = useCallback(async () => {
     try {
-      const data = await api.getGroups(event.id, myName || undefined)
+      const data = await api.getGroups(event.id)
       setGroups(data)
     } catch (err) {
       console.error('Failed to load groups:', err)
     } finally {
       setLoadingGroups(false)
     }
-  }, [event.id, myName])
+  }, [event.id])
 
   useEffect(() => { loadGroups() }, [loadGroups])
 
-  const isMemberOf = (group) =>
-    group.members.some(m => m.name === myName)
+  const userOwnsAGroup = groups.some(g => g.isOwner)
+
+  const handleLeave = async (groupId) => {
+    try {
+      await api.leaveGroup(groupId)
+      await loadGroups()
+    } catch (err) {
+      console.error('Leave failed:', err)
+    }
+  }
+
+  const handleDelete = async (groupId) => {
+    if (!window.confirm('Delete this group? This cannot be undone.')) return
+    try {
+      await api.deleteGroup(groupId)
+      await loadGroups()
+    } catch (err) {
+      console.error('Delete failed:', err)
+    }
+  }
 
   const handleModalConfirm = async (data) => {
+    setGroupError('')
     try {
       if (modal.mode === 'create') {
         await api.createGroup({
           eventId: event.id,
           name: data.groupName,
           description: data.description,
-          creator: data.yourName,
-          email: data.email,
-          phone: data.phone,
           capacity: data.capacity,
           meetupDetails: data.meetupDetails,
           vibeTags: data.vibeTags,
         })
       } else {
-        await api.joinGroup(modal.group.id, {
-          name: data.yourName,
-          email: data.email,
-          phone: data.phone,
-        })
+        await api.joinGroup(modal.group.id)
       }
-      setMyName(data.yourName)
-      sessionStorage.setItem('curia_name', data.yourName)
       await loadGroups()
     } catch (err) {
-      console.error('Group operation failed:', err)
+      setGroupError(err.message)
+      return
     }
     setModal(null)
-  }
-
-  const handleLeave = async (group) => {
-    if (!myName) return
-    const isCreator = group.creator === myName
-    const msg = isCreator
-      ? 'You created this group. Leaving will delete it for everyone. Continue?'
-      : 'Leave this group?'
-    if (!window.confirm(msg)) return
-
-    try {
-      await api.leaveGroup(group.id, myName)
-      await loadGroups()
-    } catch (err) {
-      console.error('Failed to leave group:', err)
-    }
   }
 
   const shareGroup = (group) => {
@@ -214,10 +209,21 @@ export default function EventDetail({ event, onBack }) {
               {loadingGroups ? '…' : `${groups.length} ${groups.length === 1 ? 'group' : 'groups'}`}
             </span>
           </h2>
-          <button className="btn btn-primary btn-sm" onClick={() => setModal({ mode: 'create' })}>
-            + Create Group
-          </button>
+          {user && !userOwnsAGroup && (
+            <button className="btn btn-primary btn-sm" onClick={() => setModal({ mode: 'create' })}>
+              + Create Group
+            </button>
+          )}
         </div>
+
+        {!user && (
+          <div className="groups-auth-prompt">
+            <a className="btn btn-outline btn-sm" href="/api/auth/google">
+              Sign in with Google
+            </a>
+            <span style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>to create or join groups</span>
+          </div>
+        )}
 
         {!loadingGroups && groups.length === 0 ? (
           <div className="groups-empty">
@@ -226,7 +232,6 @@ export default function EventDetail({ event, onBack }) {
         ) : (
           <div className="groups-list">
             {groups.map((group) => {
-              const joined = isMemberOf(group)
               const pct = group.capacity > 0
                 ? Math.min(100, Math.round((group.memberCount / group.capacity) * 100))
                 : null
@@ -241,27 +246,36 @@ export default function EventDetail({ event, onBack }) {
                       </span>
                     </div>
                     <div className="group-card-actions">
-                      {joined ? (
+                      {group.isOwner ? (
+                        <>
+                          <span className="badge joined-badge">Your group</span>
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={() => handleDelete(group.id)}
+                          >
+                            Delete
+                          </button>
+                        </>
+                      ) : group.hasJoined ? (
                         <>
                           <span className="badge joined-badge">✓ Joined</span>
                           <button
                             className="btn btn-ghost btn-sm"
-                            onClick={() => handleLeave(group)}
-                            title={group.creator === myName ? 'Delete group' : 'Leave group'}
+                            onClick={() => handleLeave(group.id)}
                           >
-                            {group.creator === myName ? '🗑️' : '🚪'}
+                            Leave
                           </button>
                         </>
-                      ) : !group.isFull ? (
+                      ) : user && !group.isFull ? (
                         <button
                           className="btn btn-outline btn-sm"
-                          onClick={() => setModal({ mode: 'join', group })}
+                          onClick={() => { setGroupError(''); setModal({ mode: 'join', group }) }}
                         >
                           Join
                         </button>
-                      ) : (
+                      ) : group.isFull ? (
                         <span className="badge full-badge">Group Full</span>
-                      )}
+                      ) : null}
                     </div>
                   </div>
 
@@ -270,7 +284,6 @@ export default function EventDetail({ event, onBack }) {
                     {group.capacity > 0 && ` / ${group.capacity} max`}
                   </div>
 
-                  {/* Capacity bar */}
                   {pct !== null && (
                     <div className="capacity-bar-wrapper">
                       <div className="capacity-bar">
@@ -287,7 +300,6 @@ export default function EventDetail({ event, onBack }) {
                     <p className="group-card-description">{group.description}</p>
                   )}
 
-                  {/* Meetup details */}
                   {group.meetupDetails && (
                     <div className="group-meetup">
                       <span className="group-meetup-icon">📍</span>
@@ -295,7 +307,6 @@ export default function EventDetail({ event, onBack }) {
                     </div>
                   )}
 
-                  {/* Vibe tags */}
                   {group.vibeTags?.length > 0 && (
                     <div className="group-vibes">
                       {group.vibeTags.map(tag => (
@@ -304,26 +315,23 @@ export default function EventDetail({ event, onBack }) {
                     </div>
                   )}
 
-                  {/* Members with contact info (visible only to group members) */}
                   <div className="group-members">
                     {group.members.map((m, i) => (
                       <div key={i} className="member-chip-row">
                         <span className="member-chip">{m.name}</span>
-                        {joined && (m.email || m.phone) && (
+                        {(group.hasJoined || group.isOwner) && m.email && (
                           <span className="member-contact">
-                            {m.email && <a href={`mailto:${m.email}`} title={m.email}>✉️</a>}
-                            {m.phone && <a href={`tel:${m.phone}`} title={m.phone}>📱</a>}
+                            <a href={`mailto:${m.email}`} title={m.email}>✉️</a>
                           </span>
                         )}
                       </div>
                     ))}
                   </div>
 
-                  {!joined && group.memberCount > 0 && (
+                  {!group.hasJoined && !group.isOwner && group.memberCount > 0 && (
                     <p className="contact-hint">Join to see contact info</p>
                   )}
 
-                  {/* Share + Chat toolbar */}
                   <div className="group-toolbar">
                     <button
                       className="btn btn-ghost btn-sm"
@@ -343,7 +351,7 @@ export default function EventDetail({ event, onBack }) {
                   {expandedChat === group.id && (
                     <GroupMessageBoard
                       groupId={group.id}
-                      myName={joined ? myName : null}
+                      userName={(group.hasJoined || group.isOwner) ? user?.name : null}
                     />
                   )}
                 </div>
@@ -358,8 +366,10 @@ export default function EventDetail({ event, onBack }) {
           mode={modal.mode}
           group={modal.group}
           eventName={event.name}
+          userName={user?.name}
+          error={groupError}
           onConfirm={handleModalConfirm}
-          onClose={() => setModal(null)}
+          onClose={() => { setModal(null); setGroupError('') }}
         />
       )}
     </div>

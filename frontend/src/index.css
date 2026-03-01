@@ -102,6 +102,33 @@ body {
   gap: 8px;
 }
 
+.navbar-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.navbar-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid var(--border);
+}
+
+.navbar-username {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.groups-auth-prompt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
 /* ── Layout ─────────────────────────────────────── */
 .page {
   width: 100%;
@@ -221,6 +248,16 @@ body {
 .btn-ghost:hover {
   background: var(--bg);
   color: var(--text);
+}
+
+.btn-danger {
+  background: transparent;
+  color: #e53e3e;
+  border: 1.5px solid #e53e3e;
+}
+
+.btn-danger:hover {
+  background: #fff5f5;
 }
 
 .btn-success {
