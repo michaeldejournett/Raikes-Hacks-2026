@@ -83,7 +83,7 @@ body {
 }
 
 .navbar-search input {
-  width: 80%;
+  width: 100%;
   padding: 10px 16px 10px 42px;
   border: 1.5px solid var(--border);
   border-radius: 999px;
@@ -114,7 +114,9 @@ body {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 1rem;
+  font-size: 1.25rem;
+  font-family: inherit;
+  font-weight: 600;
   color: var(--text-muted);
   white-space: nowrap;
   pointer-events: none;
@@ -218,21 +220,14 @@ body {
   align-items: start;
 }
 
-/* Mobile filter toggle */
-.filter-toggle-btn {
+/* Mobile filter toggle header — hidden on desktop */
+.filter-mobile-header {
   display: none;
-  width: 100%;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--text);
-  cursor: pointer;
-  margin-bottom: 16px;
+}
+
+/* Mobile backdrop */
+.filter-backdrop {
+  display: none;
 }
 
 @media (max-width: 900px) {
@@ -240,24 +235,145 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .filters-sidebar {
-    position: static;
-  }
-
-  .filter-toggle-btn {
+  /* Mobile toggle header — always visible inside the sidebar */
+  .filter-mobile-header {
     display: flex;
+    width: 100%;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    background: var(--card-bg);
+    border: none;
+    border-radius: var(--radius);
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
   }
 
+  /* Collapsed: sidebar shows only the header button */
   .filters-sidebar.collapsed {
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+
+  .filters-sidebar.collapsed .filter-mobile-header {
+    border: 1px solid var(--border);
+  }
+
+  .filters-sidebar.collapsed .filter-content {
     display: none;
+  }
+
+  /* Open: full-screen overlay */
+  .filters-sidebar:not(.collapsed) {
+    position: fixed;
+    inset: 0;
+    z-index: 400;
+    border-radius: 0;
+    border: none;
+    padding: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .filters-sidebar:not(.collapsed) .filter-mobile-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--card-bg);
+  }
+
+  .filters-sidebar:not(.collapsed) .filter-content {
+    padding: 20px;
+    flex: 1;
+  }
+
+  /* Backdrop */
+  .filter-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 399;
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 640px) {
+  /* ── Navbar: 2-row layout ── */
+  .navbar {
+    height: auto;
+    min-height: 56px;
+    padding: 8px clamp(12px, 4vw, 24px);
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .navbar-brand img {
+    height: 48px;
+  }
+
+  /* Search drops to its own full-width row */
+  .navbar-search {
+    order: 10;
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+
+  /* Keep actions visible but compact */
   .navbar-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  /* Hide username text, keep avatar */
+  .navbar-username {
     display: none;
   }
 
+  /* Sign-out: icon only */
+  .navbar-signout-btn {
+    padding: 6px 8px;
+  }
+  .navbar-signout-text {
+    display: none;
+  }
+
+  /* Show tagline inline next to logo */
+  .navbar-tagline {
+    position: static;
+    transform: none;
+    font-size: 0.95rem;
+    line-height: 1.2;
+    opacity: 1;
+    visibility: visible;
+    padding-left: 8px;
+    white-space: normal;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .navbar-tagline.navbar-tagline-hidden {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  /* Event grid: single column */
+  .event-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Cards fill the column */
+  .event-card {
+    width: 100%;
+  }
+
+  /* Detail page */
   .detail-hero-body {
     padding: 20px 16px;
   }
@@ -471,6 +587,7 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, 300px);
   gap: clamp(12px, 1.5vw, 20px);
+  justify-content: center;
 }
 
 .no-results {
