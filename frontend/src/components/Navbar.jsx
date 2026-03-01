@@ -34,6 +34,7 @@ export default function Navbar({ searchQuery, onSearchChange, onSearchSubmit, on
       </div>
 
       <div className="navbar-actions">
+        <span className="navbar-tagline">We already know where you're going.</span>
         {user ? (
           <div className="navbar-user">
             {user.picture && (
