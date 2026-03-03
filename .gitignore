@@ -1,11 +1,21 @@
+# Secrets — never commit
 .env
+.env.local
+
+# Python
 .venv/
 __pycache__/
 *.pyc
-scraped/*.json.bak
+
+# Node
 node_modules/
 dist/
-.env
-.env.local
+
+# SQLite database and WAL files (may contain user data)
 *.db
+*.db-shm
+*.db-wal
+
+# Misc
+scraped/*.json.bak
 backend/uploads/
