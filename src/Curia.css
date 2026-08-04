@@ -1,19 +1,9 @@
-/* ── Portfolio navbar: prevent shrink on curia page ─────────────────────────
- * The portfolio navbar shrinks (padding 1.5rem→1rem) on scroll via .scrolled.
- * On this page the curia navbar sits flush beneath it, so we keep the height
- * constant to avoid a gap forming as the user scrolls.
- * ─────────────────────────────────────────────────────────────────────────── */
-body.curia-page .navbar.scrolled {
-  padding: 1.5rem 0;
-}
-
 /* ── Curia scoped styles ─────────────────────────────────────────────────────
  * All rules are scoped under .curia-app to prevent conflicts with the
  * portfolio's global styles.
  * ─────────────────────────────────────────────────────────────────────────── */
 
 .curia-app {
-  padding-top: 70px; /* offset fixed portfolio navbar */
   /* CSS custom properties scoped to this subtree */
   --curia-primary: #6366f1;
   --curia-primary-hover: #4f46e5;
@@ -66,7 +56,7 @@ body.curia-page .navbar.scrolled {
   background: #ffffff;
   border-bottom: 1px solid var(--border);
   position: sticky;
-  top: 70px; /* account for portfolio navbar */
+  top: 0;
   z-index: 50;
   padding: 0 clamp(16px, 4vw, 56px);
   height: 80px;
@@ -373,7 +363,7 @@ body.curia-page .navbar.scrolled {
   border-radius: var(--radius);
   padding: 24px;
   position: sticky;
-  top: 162px; /* portfolio navbar (70px) + curia navbar (80px) + gap (12px) */
+  top: 92px; /* curia navbar (80px) + gap (12px) */
 }
 
 .curia-app .filters-title {
