@@ -91,6 +91,10 @@ jobs:
             frontend/package-lock.json
             backend/package-lock.json
 
+      - name: Audit root tooling lockfile
+        working-directory: .
+        run: npm audit --package-lock-only
+
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci
