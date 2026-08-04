@@ -6,11 +6,19 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timedelta, date, time
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from datetime import datetime, timedelta, date, time, timezone
+from typing import Any, Dict, List, Mapping, Optional, Tuple
+from zoneinfo import ZoneInfo
 
-import requests
-from google import genai
+from temporal import (
+    DEFAULT_TIMEZONE,
+    TemporalResolution,
+    TemporalWindow,
+    local_reference,
+    resolve_temporal,
+    strip_temporal_phrases,
+)
 
 EVENTS_FILE = "scraped/events.json"
 DEFAULT_TOP_N = 10
@@ -35,51 +43,57 @@ STOP_WORDS = {
     # time-of-day words — these should become time filters, not keywords
     "morning", "afternoon", "evening", "night", "midnight", "noon",
     "late", "early", "pm", "am", "oclock",
+    # weekday names are temporal constraints, never subject keywords
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+    "sunday",
 }
 
-EXPAND_PROMPT = """Today is {now} ({weekday}).
+EXTRACTION_PROMPT = """You extract structured intent for a university event search.
 
-You are helping search a university event database. Given a query, do two things:
+Current local datetime: {now}
+Event timezone: {timezone}
 
-1. KEYWORD EXPANSION: Extract the core topics and expand each general term into specific concrete examples.
-   - Do not expand on time words (e.g. "tonight", "weekend", "six o'clock", "6:00") or stop words (e.g. "looking", "events")
+Extract three fields:
+
+1. keywords: Expand only the non-temporal subject matter into concrete search
+   terms.
+   - Do not include dates, weekdays, times, relative words, or stop words.
    - Include the original term AND its specific instances (e.g. "food" → ["food", "pasta", "pizza", "tacos", "burger", "salad", "BBQ", "sushi"])
    - Include synonyms, related activities, and subcategories (e.g. "music" → ["music", "concert", "jazz", "rock", "band", "choir", "orchestra", "recital"])
-   - Include relevant people/roles (e.g. "volunteer" → ["volunteer", "service", "community", "outreach", "nonprofit"])
    - Keep all keywords lowercase, single words or short phrases
-   - Produce a comprehensive list ensuring broad coverage of potential matches, but avoid irrelevant terms
-   - Try to produce at least 50 key words for a general query, fewer for a specific query
+   - Prefer precision over a very large, noisy list.
 
-2. DATE EXTRACTION: Resolve any relative date references using today's date. Always use YYYY-MM-DD format (e.g. 2026-04-01). Do NOT use formats like 4/1/2026, April 1, or MM-DD-YYYY. Always interpret period references as FULL ranges, not single days.
-   - "today" / "tonight" → just today's date (date_from = date_to = today)
-   - "tomorrow" → just tomorrow's date (date_from = date_to = tomorrow)
-   - "this week" → today through the coming Sunday (inclusive)
-   - "next week" → next Monday through next Sunday (full 7-day week)
-   - "this weekend" → nearest Saturday AND Sunday (date_from = Sat, date_to = Sun)
-   - "next weekend" → the Saturday and Sunday after next (date_from = Sat, date_to = Sun)
-   - "this month" → today through the last day of the current month
-   - "next month" → first day of next month through the last day of next month (full month)
-   - "in april" / "during april" → April 1 through April 30 of the relevant year
-   - "two weeks from now" → today through 14 days from today
-   - "soon" / "upcoming" → today through 7 days from today
-   - IMPORTANT: Default to broad ranges. Only use a single day (date_from = date_to) when the user specifies an exact date or says "exactly" / "on that day"
-   - If no date is mentioned, return null for both date fields
-   - Do not include time words inside of key words (e.g. "tonight" should not be a keyword, only a date reference)
+2. date_phrase: Copy the smallest date-bearing phrase from the query, such as
+   "next Tuesday", "tomorrow", or "in April". Do not resolve it to a date.
+   Return null when no date is present.
 
-3. TIME EXTRACTION: Resolve time-of-day references into 24h HH:MM bounds.
-   - "morning" → time_from: "06:00", time_to: "12:00"
-   - "afternoon" → time_from: "12:00", time_to: "17:00"
-   - "evening" / "tonight" → time_from: "17:00", time_to: "21:00"
-   - "night" / "late night" → time_from: "21:00", time_to: null
-   - "after 6pm" / "after 18:00" → time_from: "18:00", time_to: null
-   - "before noon" / "before 12pm" → time_from: null, time_to: "12:00"
-   - specific time like "at 3pm" → time_from: "15:00", time_to: "16:00"
-   - If no time is mentioned, return null for both time fields
+3. time_phrase: Copy the smallest time-bearing phrase from the query, such as
+   "evening", "after 6pm", or "at 3pm". Do not resolve it to a clock value.
+   Return null when no time is present.
 
-Return ONLY a JSON object with no extra text.
+Query: {query}"""
 
-Query: "{query}"
-JSON: {{"keywords": ["keyword1", "keyword2", ...], "date_from": "YYYY-MM-DD or null (REQUIRED: use this format, e.g. 2026-04-01)", "date_to": "YYYY-MM-DD or null (REQUIRED: use this format, e.g. 2026-04-30)", "time_from": "HH:MM or null (24-hour, e.g. 09:00)", "time_to": "HH:MM or null (24-hour, e.g. 17:00)"}}"""
+SEARCH_EXTRACTION_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "keywords": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "date_phrase": {"type": ["string", "null"]},
+        "time_phrase": {"type": ["string", "null"]},
+    },
+    "required": ["keywords", "date_phrase", "time_phrase"],
+}
+
+
+@dataclass(frozen=True)
+class GeminiExtraction:
+    keywords: Tuple[str, ...]
+    date_phrase: Optional[str]
+    time_phrase: Optional[str]
+    temporal: Optional[TemporalResolution]
 
 
 def load_events(path: str) -> List[Dict[str, Any]]:
@@ -88,91 +102,209 @@ def load_events(path: str) -> List[Dict[str, Any]]:
 
 
 def base_terms(query: str) -> List[str]:
-    """Split query into meaningful words, stripping stop words."""
-    words = re.findall(r"[a-zA-Z0-9]+", query.lower())
+    """Split non-temporal query text into meaningful subject terms."""
+    subject_query = strip_temporal_phrases(query)
+    words = re.findall(r"[a-zA-Z0-9]+", subject_query.lower())
     return [w for w in words if w not in STOP_WORDS and len(w) > 1]
 
 
-def expand_with_gemini(query: str, model: str) -> Tuple[Optional[List[str]], Optional[Tuple[date, date]], Optional[Tuple[Optional[time], Optional[time]]]]:
-    """Call Gemini API to extract/expand keywords and resolve date/time references.
-    Returns (keywords, date_range, time_range) — any can be None if unavailable."""
-    if not GEMINI_API_KEY:
-        return None, None, None
+def _gemini_client():
+    """Create the SDK client lazily so pure resolver tests need no SDK install."""
+
+    from google import genai
+
+    return genai.Client(api_key=GEMINI_API_KEY)
+
+
+def _response_data(response: Any) -> Mapping[str, Any]:
+    parsed = getattr(response, "parsed", None)
+    if parsed is not None:
+        if isinstance(parsed, Mapping):
+            return parsed
+        if hasattr(parsed, "model_dump"):
+            return parsed.model_dump()
+        raise ValueError("Gemini parsed response is not an object")
+
+    text = (getattr(response, "text", None) or "").strip()
+    text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    data = json.loads(text)
+    if not isinstance(data, Mapping):
+        raise ValueError("Gemini response must be a JSON object")
+    return data
+
+
+def _optional_phrase(data: Mapping[str, Any], key: str) -> Optional[str]:
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{key} must be a string or null")
+    value = value.strip()
+    return value or None
+
+
+def _grounded_phrase(
+    data: Mapping[str, Any],
+    key: str,
+    query: str,
+) -> Optional[str]:
+    """Accept only phrases copied from the user's query."""
+
+    phrase = _optional_phrase(data, key)
+    if phrase and phrase.casefold() not in query.casefold():
+        return None
+    return phrase
+
+
+def extract_with_gemini(
+    query: str,
+    model: str,
+    *,
+    client: Any = None,
+    reference: Optional[datetime] = None,
+) -> Optional[GeminiExtraction]:
+    """Extract structured search intent; deterministic code resolves time."""
+
+    if client is None and not GEMINI_API_KEY:
+        return None
     try:
-        now = datetime.now()
-        prompt = EXPAND_PROMPT.format(
-            now=now.strftime("%Y-%m-%d %H:%M"),
-            weekday=now.strftime("%A"),
+        now = local_reference(reference)
+        prompt = EXTRACTION_PROMPT.format(
+            now=now.isoformat(),
+            timezone=DEFAULT_TIMEZONE,
             query=query,
         )
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        response = client.models.generate_content(
+        active_client = client or _gemini_client()
+        response = active_client.models.generate_content(
             model=model,
             contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_json_schema": SEARCH_EXTRACTION_SCHEMA,
+                "temperature": 0,
+            },
         )
-        # Strip markdown code fences if model wraps response
-        text = response.text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        data = json.loads(text)
-        keywords = [str(k).lower() for k in (data.get("keywords") or []) if k]
-
-        date_range = None
-        df = data.get("date_from")
-        dt = data.get("date_to")
-        if df and df != "null":
-            try:
-                start = date.fromisoformat(str(df))
-                end = date.fromisoformat(str(dt)) if dt and dt != "null" else start
-                date_range = (start, end)
-            except ValueError:
-                pass
-
-        time_range = None
-        tf = data.get("time_from")
-        tt = data.get("time_to")
-        if (tf and tf != "null") or (tt and tt != "null"):
-            try:
-                t_start = time.fromisoformat(str(tf)) if tf and tf != "null" else None
-                t_end   = time.fromisoformat(str(tt)) if tt and tt != "null" else None
-                time_range = (t_start, t_end)
-            except ValueError:
-                pass
-
-        return keywords, date_range, time_range
+        data = _response_data(response)
+        raw_keywords = data.get("keywords")
+        if not isinstance(raw_keywords, list):
+            raise ValueError("keywords must be an array")
+        keywords = tuple(
+            dict.fromkeys(
+                value.strip().lower()
+                for value in raw_keywords
+                if isinstance(value, str)
+                and value.strip()
+                and value.strip().lower() not in STOP_WORDS
+            )
+        )
+        date_phrase = _grounded_phrase(data, "date_phrase", query)
+        time_phrase = _grounded_phrase(data, "time_phrase", query)
+        temporal = resolve_temporal(
+            query,
+            date_phrase=date_phrase,
+            time_phrase=time_phrase,
+            reference=now,
+        )
+        return GeminiExtraction(
+            keywords=keywords,
+            date_phrase=date_phrase,
+            time_phrase=time_phrase,
+            temporal=temporal,
+        )
     except Exception as exc:
         import logging
-        logging.getLogger(__name__).warning("expand_with_gemini failed: %s", exc)
+
+        logging.getLogger(__name__).warning("extract_with_gemini failed: %s", exc)
+        return None
+
+
+def expand_with_gemini(
+    query: str,
+    model: str,
+    *,
+    client: Any = None,
+    reference: Optional[datetime] = None,
+) -> Tuple[
+    Optional[List[str]],
+    Optional[Tuple[date, date]],
+    Optional[Tuple[Optional[time], Optional[time]]],
+]:
+    """Backward-compatible three-tuple wrapper around structured extraction."""
+
+    extraction = extract_with_gemini(
+        query,
+        model,
+        client=client,
+        reference=reference,
+    )
+    if extraction is None:
         return None, None, None
+    temporal = extraction.temporal
+    return (
+        list(extraction.keywords),
+        temporal.date_range if temporal else None,
+        temporal.time_range if temporal else None,
+    )
 
 
-def extract_date_range(query: str) -> Optional[Tuple[date, date]]:
-    """Parse a date range from natural language in the query."""
-    import dateparser.search
+def extract_date_range(
+    query: str,
+    *,
+    reference: Optional[datetime] = None,
+) -> Optional[Tuple[date, date]]:
+    """Backward-compatible deterministic date-range helper."""
 
-    q = query.lower()
-    today = date.today()
+    temporal = resolve_temporal(query, reference=reference)
+    return temporal.date_range if temporal else None
 
-    if "tonight" in q:
-        return (today, today)
-    if "tomorrow" in q:
-        d = today + timedelta(days=1)
-        return (d, d)
-    if "this weekend" in q or "weekend" in q:
-        days_to_sat = (5 - today.weekday()) % 7 or 7
-        sat = today + timedelta(days=days_to_sat)
-        return (sat, sat + timedelta(days=1))
-    if "next week" in q:
-        mon = today + timedelta(days=(7 - today.weekday()))
-        return (mon, mon + timedelta(days=6))
 
+def extract_time_range(
+    query: str,
+    *,
+    reference: Optional[datetime] = None,
+) -> Optional[Tuple[Optional[time], Optional[time]]]:
+    temporal = resolve_temporal(query, reference=reference)
+    return temporal.time_range if temporal else None
+
+
+def _parse_event_datetime(
+    raw: Any,
+    timezone_name: str = DEFAULT_TIMEZONE,
+) -> Optional[datetime]:
+    if not raw:
+        return None
     try:
-        results = dateparser.search.search_dates(query, languages=["en"])
-        if results:
-            found = results[0][1].date()
-            return (found, found)
-    except Exception:
-        pass
+        parsed = datetime.fromisoformat(str(raw).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    zone = ZoneInfo(timezone_name)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=zone)
+    return parsed.astimezone(zone)
 
-    return None
+
+def filter_by_temporal_window(
+    events: List[Dict[str, Any]],
+    window: TemporalWindow,
+) -> List[Dict[str, Any]]:
+    """Return events whose aware interval overlaps ``window``."""
+
+    window_start = window.start.astimezone(timezone.utc)
+    window_end = window.end.astimezone(timezone.utc)
+    out = []
+    for event in events:
+        event_start = _parse_event_datetime(event.get("start"), window.timezone)
+        if event_start is None:
+            continue
+        event_start = event_start.astimezone(timezone.utc)
+        event_end = _parse_event_datetime(event.get("end"), window.timezone)
+        if event_end is not None:
+            event_end = event_end.astimezone(timezone.utc)
+        if event_end is None or event_end <= event_start:
+            event_end = event_start + timedelta(microseconds=1)
+        if event_start < window_end and event_end > window_start:
+            out.append(event)
+    return out
 
 
 def filter_by_date(
@@ -180,25 +312,22 @@ def filter_by_date(
     date_range: Tuple[date, date],
     time_range: Optional[Tuple[Optional[time], Optional[time]]] = None,
 ) -> List[Dict[str, Any]]:
+    """Compatibility wrapper using timezone-aware interval filtering."""
+
     start_d, end_d = date_range
     t_start, t_end = time_range if time_range else (None, None)
-    out = []
-    for e in events:
-        raw = (e.get("start") or "")
-        if not raw:
-            continue
-        try:
-            dt = datetime.fromisoformat(raw[:25])
-            if not (start_d <= dt.date() <= end_d):
-                continue
-            if t_start is not None and dt.time() < t_start:
-                continue
-            if t_end is not None and dt.time() > t_end:
-                continue
-            out.append(e)
-        except ValueError:
-            continue
-    return out
+    zone = ZoneInfo(DEFAULT_TIMEZONE)
+    start = datetime.combine(start_d, t_start or time.min, tzinfo=zone)
+    if t_end is None:
+        end = datetime.combine(end_d + timedelta(days=1), time.min, tzinfo=zone)
+    else:
+        end = datetime.combine(end_d, t_end, tzinfo=zone)
+        if end <= start:
+            end += timedelta(days=1)
+    return filter_by_temporal_window(
+        events,
+        TemporalWindow(start=start, end=end),
+    )
 
 
 def filter_by_time(
@@ -208,18 +337,15 @@ def filter_by_time(
     t_start, t_end = time_range
     out = []
     for e in events:
-        raw = (e.get("start") or "")
-        if not raw:
+        event_start = _parse_event_datetime(e.get("start"))
+        if event_start is None:
             continue
-        try:
-            dt = datetime.fromisoformat(raw[:25])
-            if t_start is not None and dt.time() < t_start:
-                continue
-            if t_end is not None and dt.time() > t_end:
-                continue
-            out.append(e)
-        except ValueError:
+        local_time = event_start.time().replace(tzinfo=None)
+        if t_start is not None and local_time < t_start:
             continue
+        if t_end is not None and local_time >= t_end:
+            continue
+        out.append(e)
     return out
 
 
@@ -268,18 +394,19 @@ def main() -> int:
     query = " ".join(args.query)
     terms = base_terms(query)
 
-    llm_date_range = None
-    llm_time_range = None
+    extraction = None
     if not args.no_llm:
         print(f"Expanding with Gemini ({args.model}) …", file=sys.stderr)
-        llm_keywords, llm_date_range, llm_time_range = expand_with_gemini(query, args.model)
-        if llm_keywords:
-            llm_keywords = [k for k in llm_keywords if k not in STOP_WORDS and len(k) > 1]
+        extraction = extract_with_gemini(query, args.model)
+        if extraction:
+            llm_keywords = [
+                keyword
+                for keyword in extraction.keywords
+                if keyword not in STOP_WORDS and len(keyword) > 1
+            ]
             print(f"  LLM keywords : {llm_keywords}", file=sys.stderr)
-            if llm_date_range:
-                print(f"  LLM dates    : {llm_date_range[0]} → {llm_date_range[1]}", file=sys.stderr)
-            if llm_time_range:
-                print(f"  LLM times    : {llm_time_range[0]} → {llm_time_range[1]}", file=sys.stderr)
+            print(f"  LLM date     : {extraction.date_phrase!r}", file=sys.stderr)
+            print(f"  LLM time     : {extraction.time_phrase!r}", file=sys.stderr)
             seen = set(terms)
             for kw in llm_keywords:
                 if kw not in seen:
@@ -288,23 +415,25 @@ def main() -> int:
         else:
             print("  Gemini unavailable — falling back to raw keywords.", file=sys.stderr)
 
-    if not terms:
-        print("No search terms found in query.", file=sys.stderr)
+    temporal = extraction.temporal if extraction and extraction.temporal else resolve_temporal(query)
+    if not terms and temporal is None:
+        print("No usable search intent found in query.", file=sys.stderr)
         return 1
 
     print(f"Terms          : {terms}", file=sys.stderr)
 
     events = load_events(args.events)
-    date_range = llm_date_range or extract_date_range(query)
-    time_range = llm_time_range
-    if date_range:
-        print(f"Date filter    : {date_range[0]} → {date_range[1]}", file=sys.stderr)
-        if time_range:
-            print(f"Time filter    : {time_range[0]} → {time_range[1]}", file=sys.stderr)
-        events = filter_by_date(events, date_range, time_range)
+    if temporal:
+        print(f"Window start   : {temporal.window.start.isoformat()}", file=sys.stderr)
+        print(f"Window end     : {temporal.window.end.isoformat()} (exclusive)", file=sys.stderr)
+        events = filter_by_temporal_window(events, temporal.window)
         print(f"Events in range: {len(events)}", file=sys.stderr)
 
-    results = search(events, terms, args.top)
+    results = (
+        search(events, terms, args.top)
+        if terms
+        else [(0, event) for event in events[: args.top]]
+    )
 
     if not results:
         print("No matching events found.", file=sys.stderr)

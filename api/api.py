@@ -17,13 +17,12 @@ from scraper import cross_dedupe, enrich_events, scrape_engage, scrape_rss
 from search import (
     STOP_WORDS,
     base_terms,
-    expand_with_gemini,
-    extract_date_range,
-    filter_by_date,
-    filter_by_time,
+    extract_with_gemini,
+    filter_by_temporal_window,
     load_events,
     search,
 )
+from temporal import resolve_temporal
 
 logging.basicConfig(
     level=logging.INFO,
@@ -154,8 +153,8 @@ async def reload_events():
 def search_events(
     q: str = Query(..., description="Natural-language search query"),
     top: int = Query(10, ge=1, le=100, description="Max results to return"),
-    model: str = Query(DEFAULT_MODEL, description="Ollama model for keyword expansion"),
-    no_llm: bool = Query(False, description="Skip Ollama expansion"),
+    model: str = Query(DEFAULT_MODEL, description="Gemini model for keyword expansion"),
+    no_llm: bool = Query(False, description="Skip Gemini keyword expansion"),
 ):
     base = base_terms(q)
     terms = list(base)
@@ -163,12 +162,15 @@ def search_events(
 
     log.info("SEARCH query=%r  base_terms=%s", q, base)
 
-    llm_date_range = None
-    llm_time_range = None
+    extraction = None
     if not no_llm:
-        llm_keywords, llm_date_range, llm_time_range = expand_with_gemini(q, model)
-        if llm_keywords:
-            llm_keywords = [k for k in llm_keywords if k not in STOP_WORDS and len(k) > 1]
+        extraction = extract_with_gemini(q, model)
+        if extraction:
+            llm_keywords = [
+                keyword
+                for keyword in extraction.keywords
+                if keyword not in STOP_WORDS and len(keyword) > 1
+            ]
             seen = set(terms)
             added = []
             for kw in llm_keywords:
@@ -178,26 +180,27 @@ def search_events(
                     added.append(kw)
             llm_used = True
             log.info("  LLM expansion  model=%s  added=%s", model, added)
-            if llm_date_range:
-                log.info("  LLM date_range %s → %s", llm_date_range[0], llm_date_range[1])
-            if llm_time_range:
-                log.info("  LLM time_range %s → %s", llm_time_range[0], llm_time_range[1])
+            log.info(
+                "  LLM phrases  date=%r  time=%r",
+                extraction.date_phrase,
+                extraction.time_phrase,
+            )
         else:
-            log.warning("  LLM expansion failed or returned no keywords — using base terms only")
+            log.warning("  LLM extraction failed — using deterministic parsing")
 
     log.info("  final_terms=%s", terms)
 
-    date_range = llm_date_range or extract_date_range(q)
-    time_range = llm_time_range
+    temporal = extraction.temporal if extraction and extraction.temporal else resolve_temporal(q)
+    date_range = temporal.date_range if temporal else None
+    time_range = temporal.time_range if temporal else None
+    temporal_window = temporal.window if temporal else None
 
-    if not terms and not date_range and not time_range:
+    if not terms and temporal_window is None:
         return JSONResponse(status_code=400, content={"error": "No usable search terms in query."})
 
     pool = _events
-    if date_range:
-        pool = filter_by_date(pool, date_range, time_range)
-    elif time_range:
-        pool = filter_by_time(pool, time_range)
+    if temporal_window:
+        pool = filter_by_temporal_window(pool, temporal_window)
 
     log.info("  date_filter=%s  time_filter=%s  pool=%d events",
              f"{date_range[0]} → {date_range[1]}" if date_range else "none",
@@ -221,6 +224,7 @@ def search_events(
                  "end":   str(time_range[1]) if time_range[1] else None}
                 if time_range else None
             ),
+            "temporal_window": temporal_window.as_dict() if temporal_window else None,
             "total_searched": len(pool),
             "count": len(result_events),
             "results": [
@@ -253,6 +257,7 @@ def search_events(
              "end":   str(time_range[1]) if time_range[1] else None}
             if time_range else None
         ),
+        "temporal_window": temporal_window.as_dict() if temporal_window else None,
         "total_searched": len(pool),
         "count": len(results),
         "results": [

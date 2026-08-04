@@ -7,7 +7,7 @@ import re
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Iterable, List, Optional
 from urllib.parse import urljoin
 
@@ -661,7 +661,7 @@ def main() -> int:
             print(f"  Warning: Engage scrape failed: {exc}")
 
     payload = {
-        "scraped_at": datetime.utcnow().isoformat() + "Z",
+        "scraped_at": datetime.now(timezone.utc).isoformat(),
         "source_url": source_url,
         "count": len(events),
         "events": [asdict(event) for event in events],

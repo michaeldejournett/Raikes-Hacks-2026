@@ -48,6 +48,8 @@ router.get('/search', async (req, res) => {
     let llmUsed = false
     let date_range = null
     let time_range = null
+    let temporal_window = null
+    let fastapiResponded = false
 
     // no_llm from client overrides env default; env default is false when API key is set
     const noLlm = no_llm === 'true' ? 'true' : 'false'
@@ -60,18 +62,15 @@ router.get('/search', async (req, res) => {
         { signal: AbortSignal.timeout(15000) }
       )
       if (resp.ok) {
+        fastapiResponded = true
         const data = await resp.json()
-        if (data.terms?.length) {
-          terms = data.terms
-          if (noLlm === 'false') llmUsed = true
-        }
-        // Only apply date/time filters in AI mode — non-AI search is pure keyword matching
-        if (noLlm === 'false') {
-          if (data.date_range) date_range = data.date_range
-          if (data.time_range) time_range = data.time_range
-        }
+        if (Array.isArray(data.terms)) terms = data.terms
+        llmUsed = Boolean(data.llm_used)
+        if (data.date_range) date_range = data.date_range
+        if (data.time_range) time_range = data.time_range
+        if (data.temporal_window) temporal_window = data.temporal_window
         // Use FastAPI's results when available (warm cache / post-scrape pool)
-        if (data.results?.length) {
+        if (Array.isArray(data.results)) {
           scored = data.results.map((r) => {
             const row = r.url ? getEventByUrl.get(r.url) : null
             if (row) return { ...formatEvent(row), score: r.score ?? 0 }
@@ -87,7 +86,9 @@ router.get('/search', async (req, res) => {
       console.warn('FastAPI search unavailable — using raw terms:', fastapiError)
     }
 
-    if (scored.length === 0) {
+    // A zero-result temporal response is authoritative. Falling back to sliced
+    // SQLite timestamps would silently change the timezone semantics.
+    if (scored.length === 0 && !(fastapiResponded && temporal_window)) {
       const allRows = listEvents.all()
       const pureFilter = terms.length === 0 && (date_range || time_range)
 
@@ -105,9 +106,10 @@ router.get('/search', async (req, res) => {
 
       // Apply time filter from AI (ev.time is "HH:MM" 24h)
       if (time_range) {
-        const t = ev.time || ''
+        const t = ev.time
+        if (!t) continue
         if (time_range.start && t < time_range.start) continue
-        if (time_range.end && t > time_range.end) continue
+        if (time_range.end && t >= time_range.end) continue
       }
 
       // Pure date/time query — include all events that passed the filter
@@ -138,7 +140,17 @@ router.get('/search', async (req, res) => {
 
     scored.sort((a, b) => b.score - a.score)
 
-    res.json({ terms, llmUsed, count: scored.length, results: scored, date_range, time_range, _fastapiUrl: FASTAPI_URL, _fastapiError: fastapiError })
+    res.json({
+      terms,
+      llmUsed,
+      count: scored.length,
+      results: scored,
+      date_range,
+      time_range,
+      temporal_window,
+      _fastapiUrl: FASTAPI_URL,
+      _fastapiError: fastapiError,
+    })
   } catch (err) {
     console.error('GET /api/events/search', err)
     res.status(500).json({ error: 'Search failed' })
@@ -163,9 +175,7 @@ function toYmd(v) {
 }
 
 function fastApiToEvent(r) {
-  const start = r.start || ''
-  const date = start.length >= 10 ? start.slice(0, 10) : ''
-  const time = start.length >= 16 ? start.slice(11, 16) : ''
+  const { date, time } = centralDateTime(r.start)
   let id = 0
   for (let i = 0; i < (r.url || '').length; i++) id = ((id << 5) - id) + r.url.charCodeAt(i)
   return {
@@ -185,6 +195,37 @@ function fastApiToEvent(r) {
     url: r.url || null,
     imageUrl: r.image_url || null,
     score: r.score,
+  }
+}
+
+function centralDateTime(value) {
+  if (!value) return { date: '', time: '' }
+  const raw = String(value)
+  if (!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+    return {
+      date: raw.length >= 10 ? raw.slice(0, 10) : '',
+      time: raw.length >= 16 ? raw.slice(11, 16) : '',
+    }
+  }
+  const instant = new Date(raw)
+  if (Number.isNaN(instant.getTime())) return { date: '', time: '' }
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Chicago',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(instant)
+      .filter(({ type }) => type !== 'literal')
+      .map(({ type, value: part }) => [type, part])
+  )
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${parts.hour}:${parts.minute}`,
   }
 }
 

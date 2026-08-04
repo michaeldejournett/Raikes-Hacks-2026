@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { loadEvents } from './services/api.js';
 import { searchKeyword, searchAi } from './utils/search.js';
+import { eventMatchesTemporal } from './utils/temporal.js';
 import { getCategoryMeta } from './data/events.js';
 import { getAllGroupCounts } from './utils/groups.js';
 import CuriaNavbar from './components/CuriaNavbar.jsx';
@@ -13,22 +14,6 @@ const DEFAULT_FILTERS = {
   dateFrom: '',
   dateTo: '',
 };
-
-function toYmd(v) {
-  if (!v) return '';
-  const s = String(v);
-  return s.length >= 10 ? s.slice(0, 10) : s;
-}
-
-function eventInDateRange(ev, dateFrom, dateTo) {
-  if (!dateFrom && !dateTo) return true;
-  const evStart = toYmd(ev.date);
-  const evEnd = toYmd(ev.endDate || ev.date);
-  if (!evStart) return false;
-  if (dateFrom && evEnd < dateFrom) return false;
-  if (dateTo && evStart > dateTo) return false;
-  return true;
-}
 
 function formatShortDate(ymd) {
   if (!ymd) return '';
@@ -50,6 +35,14 @@ function formatShortDate(ymd) {
   return `${months[m - 1] || ''} ${d}, ${y}`;
 }
 
+function formatShortTime(value) {
+  if (!value) return '';
+  const [rawHour, rawMinute] = String(value).split(':').map(Number);
+  const suffix = rawHour >= 12 ? 'PM' : 'AM';
+  const hour = rawHour % 12 || 12;
+  return `${hour}:${String(rawMinute).padStart(2, '0')} ${suffix}`;
+}
+
 export default function CuriaApp() {
   const [searchInput, setSearchInput] = useState('');
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
@@ -64,6 +57,8 @@ export default function CuriaApp() {
   const [aiSearch, setAiSearch] = useState(true);
   const [groupCounts, setGroupCounts] = useState(() => getAllGroupCounts());
   const debounceRef = useRef(null);
+  const searchRequestRef = useRef(0);
+  const queryDateAppliedRef = useRef(false);
 
   // Load events from static JSON
   useEffect(() => {
@@ -80,6 +75,7 @@ export default function CuriaApp() {
 
   const doSearch = useCallback(
     async (q, useAi) => {
+      const requestId = ++searchRequestRef.current;
       if (!q) {
         setSearchResults(null);
         setSearchMeta(null);
@@ -88,6 +84,7 @@ export default function CuriaApp() {
       setSearching(true);
       try {
         const result = useAi ? await searchAi(events, q) : searchKeyword(events, q);
+        if (requestId !== searchRequestRef.current) return;
 
         setSearchResults(result.results);
         setSearchMeta({
@@ -96,22 +93,29 @@ export default function CuriaApp() {
           count: result.count,
           dateRange: result.date_range || null,
           timeRange: result.time_range || null,
+          temporal: result.temporal_window || result.temporal || null,
+          temporalIntent: result.temporal_intent || null,
+          temporalInvalid: result.temporal_invalid || null,
+          llmIntent: result.llm_intent || null,
         });
         if (result.date_range) {
+          queryDateAppliedRef.current = true;
           setFilters((f) => ({
             ...f,
             dateFrom: result.date_range.start,
-            dateTo: result.date_range.end,
+            dateTo: result.temporal?.endLocal?.slice(0, 10) || result.date_range.end,
           }));
-        } else {
+        } else if (queryDateAppliedRef.current) {
+          queryDateAppliedRef.current = false;
           setFilters((f) => ({ ...f, dateFrom: '', dateTo: '' }));
         }
       } catch (err) {
+        if (requestId !== searchRequestRef.current) return;
         console.error('Search failed:', err);
         setSearchResults(null);
         setSearchMeta(null);
       } finally {
-        setSearching(false);
+        if (requestId === searchRequestRef.current) setSearching(false);
       }
     },
     [events]
@@ -120,10 +124,14 @@ export default function CuriaApp() {
   const handleSearchChange = (value, currentAiSearch = aiSearch) => {
     setSearchInput(value);
     clearTimeout(debounceRef.current);
+    searchRequestRef.current += 1;
+    setSearching(false);
     if (!value.trim()) {
+      queryDateAppliedRef.current = false;
       setSearchResults(null);
       setSearchMeta(null);
       setFilters(DEFAULT_FILTERS);
+      setSearching(false);
       return;
     }
     if (!currentAiSearch) {
@@ -160,15 +168,28 @@ export default function CuriaApp() {
     const source = searchResults ?? events;
     const dateFrom = filters.dateFrom;
     const dateTo = filters.dateTo;
-    const timeFrom = searchMeta?.timeRange?.start || null;
-    const timeTo = searchMeta?.timeRange?.end || null;
+    const timeRange = searchMeta?.timeRange || null;
+    const queryDateTo =
+      searchMeta?.temporal?.filterMode === 'absolute'
+        ? searchMeta.temporal.endLocal.slice(0, 10)
+        : searchMeta?.dateRange?.end;
+    const queryDatesUnchanged =
+      Boolean(searchMeta?.dateRange) &&
+      dateFrom === searchMeta.dateRange.start &&
+      dateTo === queryDateTo;
+    const absoluteWindow =
+      queryDatesUnchanged && searchMeta?.temporal?.filterMode === 'absolute'
+        ? searchMeta.temporal
+        : null;
 
     return source.filter((ev) => {
       if (filters.category.length && !filters.category.includes(ev.category)) return false;
-      if (!eventInDateRange(ev, dateFrom, dateTo)) return false;
-      if (timeFrom && ev.time && ev.time < timeFrom) return false;
-      if (timeTo && ev.time && ev.time > timeTo) return false;
-      return true;
+      return eventMatchesTemporal(
+        ev,
+        { start: dateFrom || null, end: dateTo || null },
+        timeRange,
+        absoluteWindow
+      );
     });
   }, [events, searchResults, filters, searchMeta]);
 
@@ -181,10 +202,13 @@ export default function CuriaApp() {
   const isLoading = loading || searching;
 
   const handleLogoClick = () => {
+    searchRequestRef.current += 1;
+    queryDateAppliedRef.current = false;
     setSelectedEvent(null);
     setSearchInput('');
     setSearchResults(null);
     setSearchMeta(null);
+    setSearching(false);
   };
 
   return (
@@ -211,8 +235,19 @@ export default function CuriaApp() {
           <div className="page-layout">
             <SearchFilters
               filters={filters}
-              onChange={setFilters}
-              onReset={() => setFilters(DEFAULT_FILTERS)}
+              onChange={(nextFilters) => {
+                if (
+                  nextFilters.dateFrom !== filters.dateFrom ||
+                  nextFilters.dateTo !== filters.dateTo
+                ) {
+                  queryDateAppliedRef.current = false;
+                }
+                setFilters(nextFilters);
+              }}
+              onReset={() => {
+                queryDateAppliedRef.current = false;
+                setFilters(DEFAULT_FILTERS);
+              }}
               categories={availableCategories}
               pageSize={pageSize}
               onPageSizeChange={setPageSize}
@@ -253,12 +288,19 @@ export default function CuriaApp() {
                           {formatShortDate(searchMeta.dateRange.end)}
                         </>
                       )}
+                      {searchMeta.timeRange && (
+                        <>
+                          {' '}
+                          · {formatShortTime(searchMeta.timeRange.start)}–
+                          {formatShortTime(searchMeta.timeRange.end)} CT
+                        </>
+                      )}
                       <span style={{ opacity: 0.6, marginLeft: 4 }}>▾</span>
                     </summary>
                     <div className="search-debug-body">
                       <div>
                         <span className="sdl">LLM used</span>
-                        {searchMeta.llmUsed ? 'yes' : 'no (fallback)'}
+                        {searchMeta.llmUsed ? 'yes' : 'no (deterministic)'}
                       </div>
                       <div>
                         <span className="sdl">Terms ({searchMeta.terms?.length ?? 0})</span>
@@ -272,6 +314,40 @@ export default function CuriaApp() {
                           ? `${searchMeta.dateRange.start} → ${searchMeta.dateRange.end}`
                           : 'none'}
                       </div>
+                      <div>
+                        <span className="sdl">Time filter</span>
+                        {searchMeta.timeRange
+                          ? `${searchMeta.timeRange.start} → ${searchMeta.timeRange.end} (Central)`
+                          : 'none'}
+                      </div>
+                      {searchMeta.temporal && (
+                        <div>
+                          <span className="sdl">Resolved interval</span>
+                          <span style={{ wordBreak: 'break-word' }}>
+                            {searchMeta.temporal.startLocal} → {searchMeta.temporal.endLocal}
+                            <br />
+                            {searchMeta.temporal.timeZone}
+                          </span>
+                        </div>
+                      )}
+                      {searchMeta.llmIntent && (
+                        <div>
+                          <span className="sdl">LLM interpretation</span>
+                          {[
+                            searchMeta.llmIntent.datePhrase,
+                            searchMeta.llmIntent.timePhrase,
+                          ]
+                            .filter(Boolean)
+                          .join(' · ') || 'topics only'}
+                        </div>
+                      )}
+                      {(searchMeta.temporalInvalid?.date ||
+                        searchMeta.temporalInvalid?.time) && (
+                        <div>
+                          <span className="sdl">Interpretation error</span>
+                          Check the requested date or time
+                        </div>
+                      )}
                     </div>
                   </details>
                 )}
@@ -281,9 +357,15 @@ export default function CuriaApp() {
                 {!isLoading && pagedEvents.length === 0 ? (
                   <div className="no-results">
                     <div className="no-results-icon">🔍</div>
-                    <p style={{ fontWeight: 600, marginBottom: 4 }}>No events match your search</p>
+                    <p style={{ fontWeight: 600, marginBottom: 4 }}>
+                      {searchMeta?.temporalInvalid?.date || searchMeta?.temporalInvalid?.time
+                        ? 'Curia could not interpret that date or time'
+                        : 'No events match your search'}
+                    </p>
                     <p style={{ fontSize: '0.85rem' }}>
-                      Try adjusting your filters or search terms
+                      {searchMeta?.temporalInvalid?.date || searchMeta?.temporalInvalid?.time
+                        ? 'Try a phrase like “next Tuesday evening” or “after 6pm”'
+                        : 'Try adjusting your filters or search terms'}
                     </p>
                   </div>
                 ) : (

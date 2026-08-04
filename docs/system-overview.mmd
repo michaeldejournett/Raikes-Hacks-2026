@@ -20,7 +20,7 @@ flowchart TB
   subgraph scraper [Scraper - Docker]
     FastAPI["FastAPI (port 8080)"]
     Scraper["scraper.py"]
-    Ollama["Ollama LLM"]
+    Gemini["Gemini API (optional)"]
     ScrapedJSON["scraped/events.json"]
   end
 
@@ -44,5 +44,5 @@ flowchart TB
   Scraper -->|"JSON API"| Engage
   Scraper --> ScrapedJSON
   FastAPI --> Scraper
-  FastAPI -->|"keyword expansion"| Ollama
+  FastAPI -->|"structured intent"| Gemini
   ScrapedJSON -->|"seeds on startup"| SQLite

@@ -9,6 +9,13 @@
  * Also handles date/time parsing from natural language queries.
  */
 
+import {
+  resolveTemporalQuery,
+  stripTemporalPhrases,
+} from './temporal.js';
+
+export { parseDateRange, parseTimeRange } from './temporal.js';
+
 // ── Static keyword generalization map (ported from backend/keywords.js) ──────
 const GENERALIZATIONS = [
   {
@@ -387,15 +394,59 @@ const STOP_WORDS = new Set([
   'get',
   'use',
   'used',
+  // Temporal language is interpreted by temporal.js, never by keyword scoring.
+  'today',
+  'tonight',
+  'tomorrow',
+  'yesterday',
+  'current',
+  'last',
+  'weekend',
+  'morning',
+  'noon',
+  'afternoon',
+  'evening',
+  'night',
+  'midnight',
+  'early',
+  'late',
+  'after',
+  'before',
+  'between',
+  'from',
+  'until',
+  'around',
+  'during',
+  'am',
+  'pm',
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+  'january',
+  'february',
+  'march',
+  'april',
+  'may',
+  'june',
+  'july',
+  'august',
+  'september',
+  'october',
+  'november',
+  'december',
 ]);
 
 // ── Static keyword expansion ──────────────────────────────────────────────────
-export function expandStaticTerms(query) {
-  const lower = query.toLowerCase();
+export function expandStaticTerms(query, additionalTemporalPhrases = []) {
+  const lower = stripTemporalPhrases(query, additionalTemporalPhrases).toLowerCase();
   const expanded = new Set();
 
   // Add base terms (non-stop words)
-  for (const word of lower.split(/\s+/)) {
+  for (const word of lower.match(/[a-z][a-z0-9'+-]*/g) ?? []) {
     if (word.length > 2 && !STOP_WORDS.has(word)) expanded.add(word);
   }
 
@@ -435,184 +486,110 @@ async function getLlmPipeline() {
   }
 }
 
-// Regex that matches common date/time phrases in a query
-const DATE_PHRASE_RE =
-  /\b(today|tomorrow|this\s+week(?:end)?|next\s+week|this\s+month|next\s+month|in\s+\d+\s+(?:day|week|month)s?|next\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)|(?:january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+\d{1,2}(?:st|nd|rd|th)?)?)\b/gi;
-
-function extractDatePhrase(query) {
-  const m = query.match(DATE_PHRASE_RE);
-  return m ? m[0].toLowerCase().trim() : null;
+function normalizeIntentField(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized || normalized === 'null' || normalized === 'none') return null;
+  return normalized.slice(0, 80);
 }
 
-function stripDatePhrase(query) {
-  return query.replace(DATE_PHRASE_RE, '').replace(/\s+/g, ' ').trim();
+function normalizeIntent(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const rawKeywords = Array.isArray(data.keywords) ? data.keywords : [];
+  const keywords = [
+    ...new Set(
+      rawKeywords
+        .map((keyword) => String(keyword).trim().toLowerCase())
+        .map((keyword) => stripTemporalPhrases(keyword))
+        .filter(
+          (keyword) =>
+            keyword.length > 1 &&
+            keyword.length <= 60 &&
+            !STOP_WORDS.has(keyword) &&
+            !/^\d+$/.test(keyword)
+        )
+    ),
+  ].slice(0, 20);
+
+  return {
+    keywords,
+    datePhrase: normalizeIntentField(data.date_phrase ?? data.datePhrase),
+    timePhrase: normalizeIntentField(data.time_phrase ?? data.timePhrase),
+  };
 }
 
-async function expandWithLlm(query) {
+/**
+ * Parse the local model's output without executing or trusting it.
+ * Markdown fences and leading prose are tolerated, but only the first JSON
+ * object and the three allowed fields are retained.
+ */
+export function parseLlmIntent(rawOutput) {
+  const raw =
+    typeof rawOutput === 'string'
+      ? rawOutput
+      : rawOutput && typeof rawOutput.generated_text === 'string'
+        ? rawOutput.generated_text
+        : '';
+  const start = raw.indexOf('{');
+  if (start < 0) return null;
+  let end = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') inString = true;
+    else if (character === '{') depth += 1;
+    else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        end = index;
+        break;
+      }
+    }
+  }
+  if (end <= start) return null;
   try {
-    const pipe = await getLlmPipeline();
-    const topic = stripDatePhrase(query) || query;
-    const prompt = `List comma-separated search synonyms for events about: ${topic}`;
-    const [result] = await pipe(prompt, {
-      max_new_tokens: 60,
-      repetition_penalty: 1.5,
-      no_repeat_ngram_size: 3,
-    });
-    const text = result.generated_text ?? '';
-    return text
-      .split(/[,;|\n]+/)
-      .map((w) =>
-        w
-          .trim()
-          .replace(/^\d+[.)]\s*/, '')
-          .toLowerCase()
-      )
-      .flatMap((w) => w.split(/\s+/))
-      .filter((w) => w.length > 2 && !/^\d/.test(w) && !STOP_WORDS.has(w));
+    return normalizeIntent(JSON.parse(raw.slice(start, end + 1)));
   } catch {
-    return [];
+    return null;
   }
 }
 
-async function parseDateWithLlm(query) {
-  const phrase = extractDatePhrase(query);
-  if (!phrase) return null;
+/**
+ * Ask the browser LLM to classify temporal language, not calculate dates.
+ * Date arithmetic and timezone conversion remain deterministic in temporal.js.
+ */
+export async function extractSearchIntentWithLlm(query) {
   try {
     const pipe = await getLlmPipeline();
-    const today = new Date().toISOString().slice(0, 10);
-    const prompt = `Today is ${today}. Convert ${phrase} to a date range in YYYY-MM-DD to YYYY-MM-DD format.`;
+    const prompt = `Extract a university-event search query into JSON.
+Never calculate a calendar date. Copy relative date and time phrases so code can resolve them.
+Exclude all date/time words from keywords. Add a few useful topic synonyms.
+Return exactly: {"keywords":[],"date_phrase":null,"time_phrase":null}
+
+Examples:
+"music next Tuesday evening" => {"keywords":["music","concert"],"date_phrase":"next Tuesday","time_phrase":"evening"}
+"workshops after 6pm" => {"keywords":["workshop","training"],"date_phrase":null,"time_phrase":"after 6pm"}
+"career fair tomorrow morning" => {"keywords":["career","job","networking"],"date_phrase":"tomorrow","time_phrase":"morning"}
+
+Query: "${String(query).replaceAll('"', "'")}"
+JSON:`;
     const [result] = await pipe(prompt, {
-      max_new_tokens: 25,
+      max_new_tokens: 140,
       repetition_penalty: 1.3,
       no_repeat_ngram_size: 3,
     });
-    const text = (result.generated_text ?? '').trim();
-    console.log('[parseDateWithLlm] phrase:', phrase, '| raw output:', text);
-    const match = text.match(/(\d{4}-\d{2}-\d{2})\s+to\s+(\d{4}-\d{2}-\d{2})/);
-    if (match) {
-      console.log('[parseDateWithLlm] range match:', match[1], '→', match[2]);
-      return { start: match[1], end: match[2] };
-    }
-    const single = text.match(/(\d{4}-\d{2}-\d{2})/);
-    if (single) {
-      console.log('[parseDateWithLlm] single date match:', single[1]);
-      return { start: single[1], end: single[1] };
-    }
-    console.log('[parseDateWithLlm] no date found in output');
-    return null;
+    return parseLlmIntent(result) ?? { keywords: [], datePhrase: null, timePhrase: null };
   } catch {
-    return null;
+    return { keywords: [], datePhrase: null, timePhrase: null };
   }
-}
-
-// ── Date/time parsing from natural language ───────────────────────────────────
-export function parseDateRange(query) {
-  const lower = query.toLowerCase();
-  const now = new Date();
-  const dow = now.getDay(); // 0=Sun
-
-  const ymd = (d) => new Date(d).toISOString().slice(0, 10);
-  const shift = (n) => {
-    const d = new Date(now);
-    d.setDate(d.getDate() + n);
-    return d;
-  };
-
-  // Helpers that return {start,end} given a calendar unit + signed offset
-  // (offset: 0=current, 1=next, -1=last)
-  const unitRange = {
-    day: (offset) => {
-      const d = ymd(shift(offset));
-      return { start: d, end: d };
-    },
-    week: (offset) => {
-      // Week = Mon–Sun; find Monday of target week
-      const daysToMon = dow === 0 ? -6 : -(dow - 1);
-      const mon = shift(daysToMon + offset * 7);
-      return { start: ymd(mon), end: ymd(shift(daysToMon + offset * 7 + 6)) };
-    },
-    weekend: (offset) => {
-      // Saturday of target week (positive = upcoming, negative = past)
-      const daysToSat = (6 - dow + 7) % 7 || 7;
-      const sat = shift(daysToSat + offset * 7);
-      return { start: ymd(sat), end: ymd(shift(daysToSat + offset * 7 + 1)) };
-    },
-    month: (offset) => {
-      const raw = now.getMonth() + offset;
-      const y = now.getFullYear() + Math.floor(raw / 12);
-      const m = ((raw % 12) + 12) % 12;
-      return { start: ymd(new Date(y, m, 1)), end: ymd(new Date(y, m + 1, 0)) };
-    },
-    year: (offset) => {
-      const y = now.getFullYear() + offset;
-      return { start: `${y}-01-01`, end: `${y}-12-31` };
-    },
-  };
-
-  // ── Aliases ───────────────────────────────────────────────────────────────
-  if (/\b(today|tonight)\b/.test(lower)) return unitRange.day(0);
-  if (/\btomorrow\b/.test(lower)) return unitRange.day(1);
-  if (/\byesterday\b/.test(lower)) return unitRange.day(-1);
-
-  // ── (this|current|last|next) (day|week|weekend|month|year) ───────────────
-  const modUnitRe = /\b(this|current|last|next)\s+(day|week|weekend|month|year)\b/;
-  const mu = lower.match(modUnitRe);
-  if (mu) {
-    const offset = { this: 0, current: 0, last: -1, next: 1 }[mu[1]];
-    return unitRange[mu[2]](offset);
-  }
-
-  // ── "in X days/weeks/months" ──────────────────────────────────────────────
-  const inRe = /\bin\s+(\d+)\s+(day|week|month)s?\b/;
-  const inM = lower.match(inRe);
-  if (inM) {
-    const n = parseInt(inM[1], 10);
-    if (inM[2] === 'day') return unitRange.day(n);
-    if (inM[2] === 'week') return unitRange.week(Math.round(n));
-    if (inM[2] === 'month') return unitRange.month(n);
-  }
-
-  // ── "next <weekday>" ──────────────────────────────────────────────────────
-  const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  const ndRe = /\bnext\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/;
-  const nd = lower.match(ndRe);
-  if (nd) {
-    const target = weekdays.indexOf(nd[1]);
-    const diff = (target - dow + 7) % 7 || 7;
-    const d = ymd(shift(diff));
-    return { start: d, end: d };
-  }
-
-  // ── Named months ("march events", "events in april") ─────────────────────
-  const months = [
-    'january',
-    'february',
-    'march',
-    'april',
-    'may',
-    'june',
-    'july',
-    'august',
-    'september',
-    'october',
-    'november',
-    'december',
-  ];
-  for (let i = 0; i < months.length; i++) {
-    if (lower.includes(months[i])) return unitRange.month(i - now.getMonth());
-  }
-
-  return null;
-}
-
-export function parseTimeRange(query) {
-  const lower = query.toLowerCase();
-  if (/\bmorning\b/.test(lower)) return { start: '06:00', end: '12:00' };
-  if (/\bnoon\b/.test(lower)) return { start: '11:00', end: '13:00' };
-  if (/\bafternoon\b/.test(lower)) return { start: '12:00', end: '17:00' };
-  if (/\bevening\b/.test(lower)) return { start: '17:00', end: '21:00' };
-  if (/\bnight\b/.test(lower)) return { start: '19:00', end: '23:59' };
-  return null;
 }
 
 // ── Scoring (ported from api/search.py) ──────────────────────────────────────
@@ -636,63 +613,99 @@ function scoreEvent(event, terms) {
   return score;
 }
 
+function rankEvents(events, terms, hasTemporalConstraint) {
+  if (!terms.length) return hasTemporalConstraint ? [...events] : [];
+  return events
+    .map((event) => ({ event, score: scoreEvent(event, terms) }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score)
+    .map(({ event }) => event);
+}
+
+function buildSearchResult(results, terms, llmUsed, temporalResult, llmIntent = null) {
+  return {
+    results,
+    terms,
+    llmUsed,
+    date_range: temporalResult.dateRange,
+    time_range: temporalResult.timeRange,
+    temporal: temporalResult.temporal,
+    temporal_window: temporalResult.temporal,
+    temporal_intent: temporalResult.intent,
+    temporal_invalid: temporalResult.invalid,
+    llm_intent: llmIntent,
+    count: results.length,
+  };
+}
+
 // ── Public search API ─────────────────────────────────────────────────────────
 
 /**
  * Fast keyword-only search (no LLM). Returns ranked results instantly.
  */
-export function searchKeyword(events, query) {
-  if (!query.trim()) return { results: events, terms: [], llmUsed: false };
+export function searchKeyword(events, query, options = {}) {
+  if (!query.trim()) {
+    return {
+      results: events,
+      terms: [],
+      llmUsed: false,
+      count: events.length,
+      date_range: null,
+      time_range: null,
+      temporal: null,
+    };
+  }
 
+  const temporalResult = resolveTemporalQuery(query, options);
   const terms = expandStaticTerms(query);
-  const dateRange = parseDateRange(query);
-  const timeRange = parseTimeRange(query);
+  const hasTemporalConstraint = Boolean(temporalResult.dateRange || temporalResult.timeRange);
+  const hasInvalidTemporal = temporalResult.invalid.date || temporalResult.invalid.time;
+  const results = hasInvalidTemporal ? [] : rankEvents(events, terms, hasTemporalConstraint);
 
-  const scored = events
-    .map((ev) => ({ ev, score: scoreEvent(ev, terms) }))
-    .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score)
-    .map(({ ev }) => ev);
-
-  return {
-    results: scored.length ? scored : [],
-    terms,
-    llmUsed: false,
-    date_range: dateRange,
-    time_range: timeRange,
-    count: scored.length,
-  };
+  return buildSearchResult(results, terms, false, temporalResult);
 }
 
 /**
- * AI-assisted search with LLM keyword expansion.
- * Falls back to static keyword search if LLM fails.
+ * AI-assisted search. The model extracts symbolic date/time phrases and topic
+ * keywords; deterministic code owns date arithmetic and timezone conversion.
  */
-export async function searchAi(events, query) {
-  if (!query.trim()) return { results: events, terms: [], llmUsed: false };
+export async function searchAi(events, query, options = {}) {
+  if (!query.trim()) {
+    return {
+      results: events,
+      terms: [],
+      llmUsed: false,
+      count: events.length,
+      date_range: null,
+      time_range: null,
+      temporal: null,
+    };
+  }
 
-  const staticTerms = expandStaticTerms(query);
-  const timeRange = parseTimeRange(query);
+  // Capture one clock value before the asynchronous model call so a search
+  // crossing midnight cannot resolve relative dates against two different days.
+  const referenceDate = options.referenceDate ?? new Date();
+  const llmExtractor = options.llmExtractor ?? extractSearchIntentWithLlm;
+  const llmIntent =
+    normalizeIntent(await llmExtractor(query).catch(() => null)) ?? {
+      keywords: [],
+      datePhrase: null,
+      timePhrase: null,
+    };
+  const temporalResult = resolveTemporalQuery(query, {
+    ...options,
+    referenceDate,
+    datePhrase: llmIntent.datePhrase,
+    timePhrase: llmIntent.timePhrase,
+  });
+  const staticTerms = expandStaticTerms(query, [llmIntent.datePhrase, llmIntent.timePhrase]);
+  const allTerms = [...new Set([...staticTerms, ...llmIntent.keywords])];
+  const llmUsed = Boolean(
+    llmIntent.keywords.length || llmIntent.datePhrase || llmIntent.timePhrase
+  );
+  const hasTemporalConstraint = Boolean(temporalResult.dateRange || temporalResult.timeRange);
+  const hasInvalidTemporal = temporalResult.invalid.date || temporalResult.invalid.time;
+  const results = hasInvalidTemporal ? [] : rankEvents(events, allTerms, hasTemporalConstraint);
 
-  const llmTerms = await expandWithLlm(query).catch(() => []);
-
-  const dateRange = parseDateRange(query);
-  const llmUsed = llmTerms.length > 0;
-
-  const allTerms = [...new Set([...staticTerms, ...llmTerms])];
-
-  const scored = events
-    .map((ev) => ({ ev, score: scoreEvent(ev, allTerms) }))
-    .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score)
-    .map(({ ev }) => ev);
-
-  return {
-    results: scored.length ? scored : [],
-    terms: allTerms,
-    llmUsed,
-    date_range: dateRange,
-    time_range: timeRange,
-    count: scored.length,
-  };
+  return buildSearchResult(results, allTerms, llmUsed, temporalResult, llmIntent);
 }

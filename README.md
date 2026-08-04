@@ -22,7 +22,7 @@ browser-only version lives in [`site/`](site/) and is deployed from `main` to
 
 ## Quick Start (local dev, 2 commands)
 
-> **Prerequisites:** Node.js 18+ ([download](https://nodejs.org))
+> **Prerequisites:** Node.js 22+ ([download](https://nodejs.org))
 
 ```bash
 npm install    # installs root, backend, and frontend deps automatically
@@ -55,24 +55,18 @@ Google Sign-In is required for groups and notifications. To enable it locally:
 
 ## Running Everything via Docker
 
-Docker adds live event scraping and LLM-powered natural-language search (FastAPI + Ollama).
+Docker adds live event scraping and optional Gemini-powered natural-language search.
+Set `GOOGLE_API_KEY` in `.env`; deterministic date/time parsing still works
+without an API key.
 
 ```bash
-# Mac / CPU-only / Windows
 docker compose up --build
-
-# Linux + NVIDIA GPU
-docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up --build
-
-# Linux + AMD GPU (ROCm)
-docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build
 ```
 
 | Service | Port | Description |
 |---------|------|-------------|
 | `backend` | `3001` | Express + SQLite (events, groups, auth API) |
 | `api` | `8080` | FastAPI scraper + LLM search |
-| `ollama` | — | Local LLM inference (internal only) |
 
 ---
 
@@ -80,14 +74,16 @@ docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build
 
 - **Frontend:** React + Vite
 - **Backend:** Node.js + Express + SQLite (events, groups, auth)
-- **Scraper:** Python + FastAPI + Ollama (UNL event scraping + LLM search — Docker only)
+- **Scraper:** Python + FastAPI + Gemini (UNL event scraping + structured intent extraction)
 
 ---
 
 ## Features
 
 - **Event discovery** — Browse and filter UNL events by category, date, and location
-- **AI search** — Natural-language search with keyword generalization (press Enter to submit)
+- **AI search** — Structured topic/date/time extraction with deterministic
+  `America/Chicago` resolution (for example, “next Tuesday evening” becomes a
+  concrete 5–9 PM Central interval)
 - **Looking For Group** — Create or join groups for any event, with capacity limits, meetup details, and vibe tags
 - **Group messaging** — Real-time chat within groups (auto-refreshes every 3s), visible only to members
 - **My Groups** — Quick-access menu in the navbar showing all groups you belong to
@@ -100,8 +96,21 @@ docker compose -f docker-compose.yml -f docker-compose.amd.yml up --build
 ## Architecture
 
 1. **Express API** (`backend/`) — Serves events, LFG groups, messages, and auth. Uses SQLite, zero config. Periodically pulls new events from the FastAPI scraper.
-2. **FastAPI Scraper** (`api/`) — Scrapes real UNL events from events.unl.edu + Campus Labs Engage, with optional LLM-powered keyword expansion via Ollama. Runs in Docker.
+2. **FastAPI Scraper** (`api/`) — Scrapes real UNL events from events.unl.edu +
+   Campus Labs Engage. Gemini extracts symbolic phrases; `api/temporal.py`
+   performs the authoritative calendar and timezone math.
 3. **Keyword Generalization** (`backend/keywords.js`) — At index time, generalizes event text into broader tags (e.g. "pizza" → food, "biology" → science) so searches find relevant events even when exact words don't match.
+
+The hosted `site/` uses the same split: a browser LLM extracts intent, while
+tested deterministic code resolves and filters the resulting interval. Its
+event snapshot refreshes daily through GitHub Actions.
+
+## Tests
+
+```bash
+cd site && npm test
+py -m unittest discover -s api/tests -v
+```
 
 ---
 

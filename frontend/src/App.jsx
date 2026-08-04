@@ -38,6 +38,16 @@ function eventInDateRange(ev, dateFrom, dateTo) {
   return true
 }
 
+function eventInTemporalWindow(ev, window) {
+  if (!window?.start || !window?.end || !ev.date || !ev.time) return false
+  const eventStart = `${toYmd(ev.date)}T${ev.time}:00`
+  // ISO strings with an offset sort differently from local wall-clock strings;
+  // the first 19 characters are the authoritative America/Chicago fields.
+  const windowStart = window.start.slice(0, 19)
+  const windowEnd = window.end.slice(0, 19)
+  return eventStart >= windowStart && eventStart < windowEnd
+}
+
 export default function App() {
   const [searchInput, setSearchInput]     = useState('')
   const [filters, setFilters]             = useState(DEFAULT_FILTERS)
@@ -53,12 +63,15 @@ export default function App() {
   const [aiSearch, setAiSearch]           = useState(true)
 
   const debounceRef = useRef(null)
+  const searchRequestRef = useRef(0)
 
   const doSearch = useCallback(async (q, useAi) => {
+    const requestId = ++searchRequestRef.current
     if (!q) { setSearchResults(null); setSearchMeta(null); return }
     setSearching(true)
     try {
       const data = await api.searchEvents(q, { noLlm: !useAi })
+      if (requestId !== searchRequestRef.current) return
       setSearchResults(data.results)
       setSearchMeta({
         terms: data.terms,
@@ -66,28 +79,41 @@ export default function App() {
         count: data.count,
         dateRange: data.date_range || null,
         timeRange: data.time_range || null,
+        temporalWindow: data.temporal_window || null,
         fastapiUrl: data._fastapiUrl || null,
         fastapiError: data._fastapiError || null,
       })
       // Reflect AI-applied date filter in the sidebar date picker; clear it for keyword-only searches
       if (data.date_range) {
-        setFilters(f => ({ ...f, dateFrom: data.date_range.start, dateTo: data.date_range.end }))
+        setFilters(f => ({
+          ...f,
+          dateFrom: data.date_range.start,
+          dateTo: data.temporal_window?.end?.slice(0, 10) || data.date_range.end,
+        }))
       } else {
         setFilters(f => ({ ...f, dateFrom: '', dateTo: '' }))
       }
     } catch (err) {
+      if (requestId !== searchRequestRef.current) return
       console.error('Search failed:', err)
       setSearchResults(null)
       setSearchMeta(null)
     } finally {
-      setSearching(false)
+      if (requestId === searchRequestRef.current) setSearching(false)
     }
   }, [])
 
   const handleSearchChange = (value, currentAiSearch = aiSearch) => {
     setSearchInput(value)
     clearTimeout(debounceRef.current)
-    if (!value.trim()) { setSearchResults(null); setSearchMeta(null); setFilters(DEFAULT_FILTERS); return }
+    searchRequestRef.current += 1
+    if (!value.trim()) {
+      setSearchResults(null)
+      setSearchMeta(null)
+      setFilters(DEFAULT_FILTERS)
+      setSearching(false)
+      return
+    }
     // AI mode: wait for explicit submit (Enter), regular mode: debounce on type
     if (!currentAiSearch) {
       debounceRef.current = setTimeout(() => doSearch(value.trim(), false), 500)
@@ -152,12 +178,15 @@ export default function App() {
     const dateTo   = filters.dateTo
     const timeFrom = searchMeta?.timeRange?.start || null
     const timeTo   = searchMeta?.timeRange?.end   || null
+    const temporalWindow = searchMeta?.temporalWindow || null
 
     return source.filter((ev) => {
       if (filters.category.length && !filters.category.includes(ev.category)) return false
+      if (temporalWindow) return eventInTemporalWindow(ev, temporalWindow)
       if (!eventInDateRange(ev, dateFrom, dateTo)) return false
-      if (timeFrom && ev.time && ev.time < timeFrom) return false
-      if (timeTo   && ev.time && ev.time > timeTo)   return false
+      if ((timeFrom || timeTo) && !ev.time) return false
+      if (timeFrom && ev.time < timeFrom) return false
+      if (timeTo   && ev.time >= timeTo) return false
       return true
     })
   }, [events, searchResults, filters, searchMeta])

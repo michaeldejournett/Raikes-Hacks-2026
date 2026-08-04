@@ -200,12 +200,56 @@ function inferCategory(event) {
   return bestCategory ?? 'community';
 }
 
-function parseIsoDate(iso) {
+const EVENT_TIME_ZONE = 'America/Chicago';
+const EXPLICIT_OFFSET_RE = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+const OFFSETLESS_LOCAL_RE =
+  /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?)?$/;
+
+/**
+ * Convert a scraper timestamp to Curia's Central Time calendar fields.
+ *
+ * Timestamps with an explicit offset represent instants and are converted to
+ * America/Chicago. Offset-less values are treated as already-local scraper
+ * values so their wall-clock date and time do not change with the viewer's
+ * browser timezone.
+ */
+export function parseIsoDate(iso, timeZone = EVENT_TIME_ZONE) {
   if (!iso) return { date: null, time: null };
-  // e.g. "2026-03-01T12:00:00-06:00"
-  const [datePart, timePart] = iso.split('T');
-  const time = timePart ? timePart.slice(0, 5) : null; // "HH:MM"
-  return { date: datePart, time };
+
+  const value = String(iso).trim();
+  if (!value) return { date: null, time: null };
+
+  if (!EXPLICIT_OFFSET_RE.test(value)) {
+    const local = value.match(OFFSETLESS_LOCAL_RE);
+    if (!local) return { date: null, time: null };
+    return {
+      date: local[1],
+      time: local[2] && local[3] ? `${local[2]}:${local[3]}` : null,
+    };
+  }
+
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return { date: null, time: null };
+
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(instant)
+      .filter(({ type }) => type !== 'literal')
+      .map(({ type, value: partValue }) => [type, partValue])
+  );
+
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${parts.hour}:${parts.minute}`,
+  };
 }
 
 let cachedEvents = null;

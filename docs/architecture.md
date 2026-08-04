@@ -29,7 +29,7 @@ flowchart TB
   subgraph scraper [Scraper - Docker / Railway]
     FastAPI["FastAPI (port 8080)"]
     Scraper["scraper.py"]
-    Ollama["Ollama LLM (optional)"]
+    Gemini["Gemini API (optional)"]
     ScrapedJSON["scraped/events.json"]
   end
 
@@ -56,7 +56,7 @@ flowchart TB
   Scraper -->|"JSON API"| Engage
   Scraper --> ScrapedJSON
   FastAPI --> Scraper
-  FastAPI -->|"keyword expansion"| Ollama
+  FastAPI -->|"structured intent"| Gemini
   ScrapedJSON -->|"seeds on startup"| SQLite
   FastAPI -->|"periodic refresh"| Express
 ```
@@ -94,8 +94,8 @@ sequenceDiagram
 
   Note over FE,DB: AI search
   FE->>B: GET /api/events/search?q=food near campus
-  B->>S: GET /search?q=food near campus (term expansion)
-  S-->>B: Expanded terms [food, dining, restaurant, campus]
+  B->>S: GET /search?q=food next Tuesday evening
+  S-->>B: Terms + exact America/Chicago temporal window
   B->>DB: SELECT all events
   B-->>FE: Scored + ranked results (all matches, no cap)
 
@@ -209,13 +209,15 @@ Raikes-Hacks-2026/
 ├── api/                       # Python FastAPI scraper
 │   ├── api.py                 # FastAPI app — /search, /events, /health, /reload
 │   ├── scraper.py             # UNL RSS + Engage scraper
-│   ├── search.py              # Keyword search + optional Ollama expansion
+│   ├── search.py              # Keyword search + optional Gemini extraction
+│   ├── temporal.py            # Deterministic Central-time interval resolver
+│   ├── tests/                 # Resolver, model-boundary, and API contract tests
 │   └── Dockerfile
 │
 ├── scraped/events.json        # Scraper output — seeds SQLite on startup
 ├── .env.example               # Required environment variables
 ├── deploy.sh                  # One-command Railway deployment script
-├── docker-compose.yml         # Local: Ollama + FastAPI + backend
+├── docker-compose.yml         # Local: FastAPI + backend + frontend
 └── railway.json               # Railway deployment config
 ```
 
@@ -225,7 +227,12 @@ Search works in two layers:
 
 **Index time** (`keywords.js` + `db.js`): When events are inserted, their title and description are run through a generalization map that adds parent-category tags. An event mentioning "pizza" gets `["food", "dining"]` added to its tags. An event mentioning "biology" gets `["science", "stem"]`.
 
-**Query time** (`routes/events.js` + FastAPI): When a search query comes in, it's sent to FastAPI for term expansion (using Ollama if available, raw tokenization otherwise). The expanded terms are then scored against every event's name (4×), venue (2×), category (2×), description (1×), and tags (1×). All matching events are returned ranked by score — no cap on results.
+**Query time** (`routes/events.js` + FastAPI): When a search query comes in,
+Gemini can extract topic keywords plus literal date/time phrases. The
+application—not the model—resolves those phrases into an explicit,
+half-open `America/Chicago` interval. Deterministic parsing remains available
+when Gemini is disabled or unavailable. Topic terms are then scored against
+event fields, while timestamps are normalized before interval filtering.
 
 ## Deployment (Railway)
 

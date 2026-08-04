@@ -1,0 +1,113 @@
+name: Tests
+
+on:
+  pull_request:
+    paths:
+      - "api/**"
+      - "backend/**"
+      - "frontend/**"
+      - "site/**"
+      - ".github/workflows/tests.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "api/**"
+      - "backend/**"
+      - "frontend/**"
+      - "site/**"
+      - ".github/workflows/tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-site:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit dependencies
+        run: npm audit
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: api/requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r api/requirements.txt
+
+      - name: Run tests
+        run: python -m unittest discover -s api/tests -v
+
+  full-stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Audit backend dependencies
+        working-directory: backend
+        run: npm audit --omit=dev
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Audit frontend dependencies
+        run: npm audit
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Check backend route syntax
+        working-directory: backend
+        run: node --check routes/events.js
