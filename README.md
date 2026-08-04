@@ -12,6 +12,12 @@ An event discovery app with a **Looking For Group** feature — find UNL events 
 | **API (backend)** | https://backend-production-21c6f.up.railway.app |
 | **Scraper (FastAPI)** | https://api-production-a090.up.railway.app |
 
+## Hosted portfolio demo
+
+The original full-stack project remains at the repository root. A self-contained,
+browser-only version lives in [`site/`](site/) and is deployed from `main` to
+[GitHub Pages](https://michaeldejournett.github.io/Raikes-Hacks-2026/).
+
 ---
 
 ## Quick Start (local dev, 2 commands)
